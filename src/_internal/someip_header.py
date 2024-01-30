@@ -1,7 +1,6 @@
 import struct
 from dataclasses import dataclass
 
-
 SERVICE_ID_SD = 0xFFFF
 METHOD_ID_SD = 0x8100
 CLIENT_ID_SD = 0x0000

@@ -1,26 +1,40 @@
 import asyncio
+import time
+
+
 
 class SimplePeriodicTimer():
     def __init__(self, period, callback):
         self._period = period
         self._callback = callback
         self.task = None
+        self._running = False
 
     async def _job(self):
-        while True:
-            try:
-                await asyncio.sleep(self._period)
+        try:
+            while True:
+                start = time.time()
                 self._callback()
-            except asyncio.CancelledError as e:
-                # print(f"SimplePeriodicTimer error: {e}")
-                pass
+                elapsed = time.time() - start
+                to_sleep = self._period - elapsed
+                if (elapsed > self._period):
+                    # TODO: print warning
+                    pass
+                    to_sleep = self._period
+                await asyncio.sleep(to_sleep)
+        except asyncio.CancelledError as e:
+            self._running = False
+            pass
 
+  
     def start(self):
-        if self.task is None:
+        if not self._running:
+            self._running = True
             self.task = asyncio.create_task(self._job())
 
     def stop(self):
-        self.task.cancel()
+        if self._running and self.task is not None:
+            self.task.cancel()
 
 
 class SimpleTimer():

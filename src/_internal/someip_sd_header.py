@@ -1,60 +1,29 @@
-import struct
 import ipaddress
+import struct
 from enum import Enum
 from dataclasses import dataclass
-from typing import List, Tuple, TypeVar, Generator, Union
+from typing import List, Tuple, TypeVar, Union
 
-from src.someip_header import (
-    SomeIpHeader,
-    SERVICE_ID_SD,
-    METHOD_ID_SD,
-    CLIENT_ID_SD,
-    PROTOCOL_VERSION_SD,
-    INTERFACE_VERSION_SD,
-    MESSAGE_TYPE_SD,
-    RETURN_CODE_SD,
-)
+from src._internal.utils import set_bit_at_position, is_bit_set
+from src._internal.someip_header import SomeIpHeader
 
-_SD_IP4ENDPOINT_OPTION_LENGTH = 9
+# Constants for byte positions inside the SD header
+SD_POSITION_ENTRY_LENGTH = 20
+SD_START_POSITION_ENTRIES = 24
 
-_SD_POSITION_ENTRY_LENGTH = 20
-_SD_START_POSITION_ENTRIES = 24
+# Constants for length of sections in the SD header
+SD_SINGLE_ENTRY_LENGTH_BYTES = 16
 
-_SD_SINGLE_ENTRY_LENGTH_BYTES = 16
+SD_IPV4ENDPOINT_OPTION_LENGTH_VALUE = 9
+SD_BYTE_LENGTH_IP4ENDPOINT_OPTION = 12
 
 _T = TypeVar("_T")
-
-
-def set_bit_at_position(number: int, position: int, value: bool) -> int:
-    """Set the bit at the specified position to the given boolean value."""
-    if value:
-        # Set the bit to 1
-        return number | (1 << position)
-    else:
-        # Set the bit to 0
-        return number & ~(1 << position)
-
-
-def is_bit_set(number: int, bit_position: int) -> bool:
-    """
-    Checks if the bit at the specified position is set in the given number.
-
-    Parameters:
-    - number: The integer to check.
-    - bit_position: The position of the bit to check (0-based index).
-
-    Returns:
-    - True if the bit is set, False otherwise.
-    """
-    # Left shift 1 to the bit position and perform bitwise AND with the number
-    # If the result is non-zero, the bit is set; otherwise, it's not set.
-    return (number & (1 << bit_position)) != 0
 
 
 class SdEntryType(Enum):
     FIND_SERVICE = 0x00
     OFFER_SERVICE = 0x01
-    STOP_OFFER_SERVICE = 0x01 # with TTL to 0x000000
+    STOP_OFFER_SERVICE = 0x01  # with TTL to 0x000000
     SUBSCRIBE_EVENT_GROUP = 0x06
     STOP_SUBSCRIBE_EVENT_GROUP = 0x06  # with TTL to 0x000000
     SUBSCRIBE_EVENT_GROUP_ACK = 0x07
@@ -88,7 +57,7 @@ class SdEntry:
     ttl: int
 
     @classmethod
-    def from_buffer(cls, buf: bytes):
+    def from_buffer(cls: _T, buf: bytes) -> _T:
         type_field_value, index_first_option, index_second_option = struct.unpack(
             ">BBB", buf[0:3]
         )
@@ -163,7 +132,7 @@ class SdEventGroupEntry:
     eventgroup_id: int
 
     @classmethod
-    def from_buffer(cls, buf: bytes):
+    def from_buffer(cls: _T, buf: bytes) -> _T:
         sd_entry = SdEntry.from_buffer(buf)
         initial_data_requested_flag_counter_value, eventgroup_id = struct.unpack(
             ">BH", buf[13:16]
@@ -190,7 +159,7 @@ class SdServiceEntry:
     minor_version: int
 
     @classmethod
-    def from_buffer(cls, buf: bytes):
+    def from_buffer(cls: _T, buf: bytes) -> _T:
         sd_entry = SdEntry.from_buffer(buf)
         (minor_version,) = struct.unpack(">I", buf[12:16])
         return cls(sd_entry, minor_version)
@@ -206,7 +175,7 @@ class SdOptionCommon:
     discardable_flag: bool
 
     @classmethod
-    def from_buffer(cls, buf: bytes):
+    def from_buffer(cls: _T, buf: bytes) -> _T:
         option_length, option_type, discardable_flag_value = struct.unpack(
             ">HBB", buf[0:4]
         )
@@ -227,7 +196,7 @@ class SdIPV4EndpointOption:
     port: int
 
     @classmethod
-    def from_buffer(cls, buf: bytes):
+    def from_buffer(cls: _T, buf: bytes) -> _T:
         sd_option_common = SdOptionCommon.from_buffer(buf)
         ip1, ip2, ip3, ip4, _, protocol_value, port = struct.unpack(
             ">BBBBBBH", buf[4:12]
@@ -247,7 +216,9 @@ class SdIPV4EndpointOption:
 
 
 @dataclass
-class SdOfferedService:
+class SdService:
+    """This class aggregates more data and provides an easier interface instead of loose SD entries and options"""
+
     service_id: int
     instance_id: int
     major_version: int
@@ -267,35 +238,8 @@ class SomeIpSdHeader:
     service_entries: List[Union[SdServiceEntry, SdEventGroupEntry]]
     options: List[SdIPV4EndpointOption]
 
-
-    def extract_offered_services(self) -> List[SdOfferedService]:
-        result = []
-        service_offers = [
-            o
-            for o in self.service_entries
-            if o.sd_entry.type == SdEntryType.OFFER_SERVICE
-        ]
-        for e in service_offers:
-            endpoint = (
-                self.options[e.sd_entry.index_first_option].ipv4_address,
-                self.options[e.sd_entry.index_first_option].port,
-            )
-            protocol = self.options[e.sd_entry.index_first_option].protocol
-
-            sd_offered_service = SdOfferedService(
-                service_id=e.sd_entry.service_id,
-                instance_id=e.sd_entry.instance_id,
-                major_version=e.sd_entry.major_version,
-                minor_version=e.minor_version,
-                ttl=e.sd_entry.ttl,
-                endpoint=endpoint,
-                protocol=protocol,
-            )
-            result.append(sd_offered_service)
-        return result
-
     @classmethod
-    def from_buffer(cls, buf: bytes):
+    def from_buffer(cls: _T, buf: bytes) -> _T:
         someip_header = SomeIpHeader.from_buffer(buf)
 
         (flags,) = struct.unpack(">B", buf[16:17])
@@ -303,14 +247,15 @@ class SomeIpSdHeader:
         unicast_flag = is_bit_set(flags, 6)
 
         (length_entries,) = struct.unpack(
-            ">I", buf[_SD_POSITION_ENTRY_LENGTH : _SD_POSITION_ENTRY_LENGTH + 4]
+            ">I", buf[SD_POSITION_ENTRY_LENGTH : SD_POSITION_ENTRY_LENGTH + 4]
         )
-        number_of_entries = int(length_entries / _SD_SINGLE_ENTRY_LENGTH_BYTES)
+        number_of_entries = int(length_entries / SD_SINGLE_ENTRY_LENGTH_BYTES)
 
+        # Read in all Service and Event Group entries
         entries = []
         for i in range(number_of_entries):
-            start_entry = _SD_START_POSITION_ENTRIES + i * _SD_SINGLE_ENTRY_LENGTH_BYTES
-            end_entry = start_entry + _SD_SINGLE_ENTRY_LENGTH_BYTES
+            start_entry = SD_START_POSITION_ENTRIES + (i * SD_SINGLE_ENTRY_LENGTH_BYTES)
+            end_entry = start_entry + SD_SINGLE_ENTRY_LENGTH_BYTES
 
             sd_entry = SdEntry.from_buffer(buf[start_entry:end_entry])
 
@@ -331,7 +276,10 @@ class SomeIpSdHeader:
                     SdEventGroupEntry.from_buffer(buf[start_entry:end_entry])
                 )
 
-        pos_length_options = _SD_POSITION_ENTRY_LENGTH + 4 + length_entries
+        # Read in all options
+        # The length of the positions is stored after all entries. Therefore the length entry (4 bytes)
+        # and the total length of the entries is added to the position of the entries length
+        pos_length_options = SD_POSITION_ENTRY_LENGTH + 4 + length_entries
         (length_options,) = struct.unpack(
             ">I", buf[pos_length_options : pos_length_options + 4]
         )
@@ -343,24 +291,21 @@ class SomeIpSdHeader:
         options = []
         while bytes_options_left > 0:
             sd_option_common = SdOptionCommon.from_buffer(
-                buf[current_pos_option : current_pos_option + 8]
+                buf[current_pos_option : current_pos_option + 4]
             )
 
             if sd_option_common.type == SdOptionType.IPV4_ENDPOINT:
                 sd_option = SdIPV4EndpointOption.from_buffer(
                     buf[
-                        current_pos_option : current_pos_option
-                        + sd_option_common.length
-                        + 3
+                        current_pos_option : (current_pos_option
+                        + SD_BYTE_LENGTH_IP4ENDPOINT_OPTION)
                     ]
                 )
                 options.append(sd_option)
 
             # Subtract 3 bytes first for length and type
-            bytes_options_left -= 3
-            current_pos_option += 3
-            bytes_options_left -= sd_option_common.length
-            current_pos_option += sd_option_common.length
+            bytes_options_left -= (sd_option_common.length + 3)
+            current_pos_option += (sd_option_common.length + 3)
 
         return cls(
             someip_header,
@@ -378,7 +323,7 @@ class SomeIpSdHeader:
         flags = set_bit_at_position(flags, 31, self.reboot_flag)
         flags = set_bit_at_position(flags, 30, self.unicast_flag)
 
-        out += struct.pack(">I", flags)  # flags + 24 reserved bits
+        out += struct.pack(">I", flags)  # 8 bit flags + 24 reserved bits
         out += struct.pack(">I", self.length_entries)
         for entry in self.service_entries:
             out += entry.to_buffer()
@@ -387,115 +332,3 @@ class SomeIpSdHeader:
             out += option.to_buffer()
         return out
 
-
-def extract_subscribe_eventgroup_entries(
-    someip_sd_header: SomeIpSdHeader,
-) -> List[Tuple[SdEventGroupEntry, SdIPV4EndpointOption]]:
-    result = []
-
-    for entry in someip_sd_header.service_entries:
-        if entry.sd_entry.type == SdEntryType.SUBSCRIBE_EVENT_GROUP:
-            # Check TTL in order to distinguish between subscribe and stop subscribe
-            # SUBSCRIBE_EVENT_GROUP = 0x06
-            # STOP_SUBSCRIBE_EVENT_GROUP = 0x06  # with TTL to 0x000000
-            if entry.sd_entry.ttl != 0x00:
-                if entry.sd_entry.num_options_1 > 0:
-                    option = someip_sd_header.options[entry.sd_entry.index_first_option]
-                    result.append((entry, option))
-
-    return result
-
-
-def construct_offer_service_sd_header(
-    service_to_offer: SdOfferedService, session_id: int, reboot_flag: bool
-):
-    sd_entry: SdEntry = SdEntry(
-        SdEntryType.OFFER_SERVICE,
-        0,  # index_first_option
-        0,  # index_second_option
-        1,  # num_options_1
-        0,  # num_options_2
-        service_to_offer.service_id,
-        service_to_offer.instance_id,
-        service_to_offer.major_version,
-        service_to_offer.ttl,
-    )
-
-    service_entry = SdServiceEntry(
-        sd_entry=sd_entry, minor_version=service_to_offer.minor_version
-    )
-    option_entry_common = SdOptionCommon(
-        length=_SD_IP4ENDPOINT_OPTION_LENGTH,
-        type=SdOptionType.IPV4_ENDPOINT,
-        discardable_flag=False,
-    )
-    sd_option_entry = SdIPV4EndpointOption(
-        sd_option_common=option_entry_common,
-        ipv4_address=service_to_offer.endpoint[0],
-        protocol=service_to_offer.protocol,
-        port=service_to_offer.endpoint[1],
-    )
-
-    LENGTH_SERVICE_ENTRY = 16
-    LENGTH_IP4ENDPOINT_OPTION = 12
-
-    # 20 bytes for header and length values of entries and options
-    # + length of entries array
-    # + length of options array
-    total_length = 20 + 1 * LENGTH_SERVICE_ENTRY + 1 * LENGTH_IP4ENDPOINT_OPTION
-    someip_header = SomeIpHeader.generate_sd_header(
-        length=total_length, session_id=session_id
-    )
-
-    return SomeIpSdHeader(
-        someip_header=someip_header,
-        reboot_flag=reboot_flag,
-        unicast_flag=True,
-        length_entries=1 * LENGTH_SERVICE_ENTRY,
-        length_options=1 * LENGTH_IP4ENDPOINT_OPTION,
-        service_entries=[service_entry],
-        options=[sd_option_entry],
-    )
-
-
-def construct_subscribe_eventgroup_ack_entry(
-    service_id: int, instance_id: int, major_version: int, ttl: int, event_group_id: int
-) -> SdEventGroupEntry:
-    sd_entry: SdEntry = SdEntry(
-        SdEntryType.SUBSCRIBE_EVENT_GROUP_ACK,
-        0,  # index_first_option
-        0,  # index_second_option
-        0,  # num_options_1
-        0,  # num_options_2
-        service_id,
-        instance_id,
-        major_version,
-        ttl,
-    )
-
-    entry = SdEventGroupEntry(
-        sd_entry=sd_entry,
-        initial_data_requested_flag=False,
-        counter=0,
-        eventgroup_id=event_group_id,
-    )
-    return entry
-
-
-def construct_subscribe_eventgroup_ack_sd_header(
-    entry: SdEventGroupEntry, session_id: int, reboot_flag: bool
-) -> SomeIpSdHeader:
-    total_length = 20 + 1 * _SD_SINGLE_ENTRY_LENGTH_BYTES
-    someip_header = SomeIpHeader.generate_sd_header(
-        length=total_length, session_id=session_id
-    )
-
-    return SomeIpSdHeader(
-        someip_header=someip_header,
-        reboot_flag=reboot_flag,
-        unicast_flag=True,
-        length_entries=_SD_SINGLE_ENTRY_LENGTH_BYTES,
-        length_options=0,
-        service_entries=[entry],
-        options=[],
-    )
