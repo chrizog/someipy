@@ -1,6 +1,7 @@
 import struct
 
 from dataclasses import dataclass
+from typing import Generic, List, Type, TypeVar
 
 
 """
@@ -49,6 +50,7 @@ class Sint8:
 
     def deserialize(self, payload):
         (self.value,) = struct.unpack(">b", payload)
+        return self
 
 
 @dataclass
@@ -63,6 +65,7 @@ class Uint16:
 
     def deserialize(self, payload):
         (self.value,) = struct.unpack(">H", payload)
+        return self
 
 
 @dataclass
@@ -77,6 +80,7 @@ class Sint16:
 
     def deserialize(self, payload):
         (self.value,) = struct.unpack(">h", payload)
+        return self
 
 
 @dataclass
@@ -91,6 +95,7 @@ class Uint32:
 
     def deserialize(self, payload):
         (self.value,) = struct.unpack(">L", payload)
+        return self
 
 
 @dataclass
@@ -105,6 +110,7 @@ class Sint32:
 
     def deserialize(self, payload):
         (self.value,) = struct.unpack(">l", payload)
+        return self
 
 
 @dataclass
@@ -119,6 +125,7 @@ class Uint64:
 
     def deserialize(self, payload):
         (self.value,) = struct.unpack(">Q", payload)
+        return self
 
 
 @dataclass
@@ -133,6 +140,7 @@ class Sint64:
 
     def deserialize(self, payload):
         (self.value,) = struct.unpack(">q", payload)
+        return self
 
 
 @dataclass
@@ -154,6 +162,7 @@ class Bool:
             self.value = False
         elif int_value == 1:
             self.value = True
+        return self
 
 
 @dataclass
@@ -168,6 +177,7 @@ class Float32:
 
     def deserialize(self, payload):
         (self.value,) = struct.unpack(">f", payload)
+        return self
 
 
 @dataclass
@@ -182,13 +192,14 @@ class Float64:
 
     def deserialize(self, payload):
         (self.value,) = struct.unpack(">d", payload)
+        return self
 
 
 def serialize(obj) -> bytes:
     ordered_items = [
         (name, value)
         for name, value in obj.__dict__.items()
-        if not name.startswith("__")
+        if not (name.startswith("__") or name.startswith("_"))
     ]
     output = bytes()
     for _, value in ordered_items:
@@ -197,19 +208,16 @@ def serialize(obj) -> bytes:
 
 
 class SomeIpPayload:
-    def __init__(self):
-        pass
-
     def __len__(self) -> int:
-        len = 0
+        payload_length = 0
         ordered_items = [
             (name, value)
             for name, value in self.__dict__.items()
             if not name.startswith("__")
         ]
         for _, value in ordered_items:
-            len += len(value)
-        return len
+            payload_length += len(value)
+        return payload_length
 
     def serialize(self) -> bytes:
         return serialize(self)
@@ -221,5 +229,60 @@ class SomeIpPayload:
             if not name.startswith("__")
         ]
 
+        pos = 0
+
         for key, value in ordered_items:
-            deserialized_value = self.__dict__[key].deserialize(payload)
+            type_length = len(value)
+
+            self.__dict__[key].deserialize(payload[pos : (pos + type_length)])
+
+            pos += type_length
+        return self
+
+T = TypeVar('T')
+class SomeIpFixedSizeArray(Generic[T]):
+    # Length fields are not supported yet
+
+    data: List[T]
+
+    def __init__(self, class_reference: Type[T], size: int):
+        self.data = [class_reference() for i in range(size)]
+
+    def __eq__(self, other):
+        if isinstance(other, SomeIpFixedSizeArray):
+            # Compare if the length (number of elements) of other array is the same
+            if len(self.data) != len(other.data):
+                return False
+
+            # Compare if bytes length of other is the same
+            if len(self) != len(other):
+                return False
+
+            # Compare if the content of all elements is the same
+            for i in range(len(self.data)):
+                if self.data[i] != other.data[i]:
+                    return False
+            return True
+        
+        return False
+
+    def __len__(self) -> int:
+        if len(self.data) == 0:
+            return 0
+        else:
+            return len(self.data) * len(self.data[0])
+
+    def serialize(self) -> bytes:
+        result = bytes()
+        for element in self.data:
+            result += element.serialize()
+        return result
+
+    def deserialize(self, payload: bytes):
+        if len(self.data) == 0:
+            return
+        
+        single_element_length = len(self.data[0])
+        for i in range(len(self.data)):
+            self.data[i].deserialize(payload[(i*single_element_length):((i+1)*single_element_length)])
+        return self

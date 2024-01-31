@@ -1,4 +1,3 @@
-import logging
 from dataclasses import dataclass
 from typing import List
 
@@ -160,6 +159,10 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
                 endpoint=(ipv4_endpoint_option.ipv4_address, ipv4_endpoint_option.port),
             )
             self._insert_subscriber(subscriber)
+
+    def subscribe_ack_eventgroup_update(self, _: SdEventGroupEntry) -> None:
+        # Not needed for server instance
+        pass
 
     def offer_timer_callback(self):
         (

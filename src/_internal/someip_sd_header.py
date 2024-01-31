@@ -217,7 +217,7 @@ class SdIPV4EndpointOption:
 
 @dataclass
 class SdService:
-    """This class aggregates more data and provides an easier interface instead of loose SD entries and options"""
+    """This class aggregates data from entries and options and provides a compact interface instead of loose SD entries and options"""
 
     service_id: int
     instance_id: int
@@ -297,15 +297,16 @@ class SomeIpSdHeader:
             if sd_option_common.type == SdOptionType.IPV4_ENDPOINT:
                 sd_option = SdIPV4EndpointOption.from_buffer(
                     buf[
-                        current_pos_option : (current_pos_option
-                        + SD_BYTE_LENGTH_IP4ENDPOINT_OPTION)
+                        current_pos_option : (
+                            current_pos_option + SD_BYTE_LENGTH_IP4ENDPOINT_OPTION
+                        )
                     ]
                 )
                 options.append(sd_option)
 
             # Subtract 3 bytes first for length and type
-            bytes_options_left -= (sd_option_common.length + 3)
-            current_pos_option += (sd_option_common.length + 3)
+            bytes_options_left -= sd_option_common.length + 3
+            current_pos_option += sd_option_common.length + 3
 
         return cls(
             someip_header,
@@ -331,4 +332,3 @@ class SomeIpSdHeader:
         for option in self.options:
             out += option.to_buffer()
         return out
-

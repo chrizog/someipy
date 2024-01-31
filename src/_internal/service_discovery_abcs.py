@@ -16,6 +16,10 @@ class ServiceDiscoveryObserver(ABC):
     def subscribe_eventgroup_update(self, sd_event_group: SdEventGroupEntry, ip4_endpoint_option: SdIPV4EndpointOption) -> None:
         pass
 
+    @abstractmethod
+    def subscribe_ack_eventgroup_update(self, sd_event_group: SdEventGroupEntry) -> None:
+        pass
+
 class ServiceDiscoverySubject(ABC):
     @abstractmethod
     def attach(self, service_instance: ServiceDiscoveryObserver) -> None:

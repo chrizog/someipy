@@ -41,3 +41,17 @@ def extract_subscribe_eventgroup_entries(
                     result.append((entry, option))
     return result
 
+def extract_subscribe_ack_eventgroup_entries(
+    someip_sd_header: SomeIpSdHeader,
+) -> List[SdEventGroupEntry]:
+    result = []
+
+    for entry in someip_sd_header.service_entries:
+        if entry.sd_entry.type == SdEntryType.SUBSCRIBE_EVENT_GROUP_ACK:
+            # Check TTL in order to distinguish between subscribe ack and nack
+            # SUBSCRIBE_EVENT_GROUP_ACK = 0x07
+            # SUBSCRIBE_EVENT_GROUP_NACK = 0x07  # with TTL set to 0x00
+            if entry.sd_entry.ttl != 0x00:
+                result.append(entry)
+    return result
+
