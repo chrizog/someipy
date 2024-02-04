@@ -36,6 +36,7 @@ class MsgBaseTypesOnly(SomeIpPayload):
         self.z = Float64(0.0)
 
 
+@dataclass
 class MsgWithOneStruct(SomeIpPayload):
     # Expected 1 + 13 + 4 bytes in total
     a: Uint8

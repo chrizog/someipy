@@ -1,6 +1,6 @@
 import logging
 
-_log_level = logging.DEBUG
+_log_level = logging.INFO
 
 def set_someipy_log_level(log_level: int):
     global _log_level

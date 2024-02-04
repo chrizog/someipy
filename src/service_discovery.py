@@ -85,12 +85,12 @@ class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
             for o in self.attached_observers:
                 o.subscribe_eventgroup_update(event_group_entry, ipv4_endpoint_option)
 
-        for event_group_entry in extract_subscribe_ack_eventgroup_entries(someip_header):
+        for event_group_entry in extract_subscribe_ack_eventgroup_entries(someip_sd_header):
             _logger.debug(
                 f"Received subscribe ACK for instance 0x{event_group_entry.sd_entry.instance_id:04X}, service 0x{event_group_entry.sd_entry.service_id:04X}, eventgroup 0x{event_group_entry.eventgroup_id:04X}"
             )
-            for o in self.attached_observers:
-                o.sub
+            #for o in self.attached_observers:
+            #    o.sub
 
     def connection_lost(self, exc: Exception) -> None:
         pass

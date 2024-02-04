@@ -179,6 +179,8 @@ class Float32:
         (self.value,) = struct.unpack(">f", payload)
         return self
 
+    def __eq__(self, other) -> Bool:
+        return self.serialize() == other.serialize()
 
 @dataclass
 class Float64:
@@ -193,6 +195,9 @@ class Float64:
     def deserialize(self, payload):
         (self.value,) = struct.unpack(">d", payload)
         return self
+    
+    def __eq__(self, other) -> Bool:
+        return self.serialize() == other.serialize()
 
 
 def serialize(obj) -> bytes:
