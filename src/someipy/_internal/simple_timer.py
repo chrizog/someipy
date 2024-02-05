@@ -2,7 +2,6 @@ import asyncio
 import time
 
 
-
 class SimplePeriodicTimer():
     def __init__(self, period, callback):
         self._period = period

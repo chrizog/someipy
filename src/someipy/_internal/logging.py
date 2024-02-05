@@ -1,5 +1,5 @@
 import logging
-from src.logging import get_someipy_log_level
+from someipy.logging import get_someipy_log_level
 
 def get_logger(name: str) -> logging.Logger:
     logger = logging.getLogger("someipy." + name)

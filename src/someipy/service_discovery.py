@@ -2,17 +2,17 @@ import asyncio
 import ipaddress
 from typing import Any, Union, Tuple, List
 
-from src._internal.someip_header import SomeIpHeader
-from src._internal.someip_sd_header import *
-from src._internal.someip_sd_extractors import *
-from src._internal.session_handler import SessionHandler
-from src._internal.utils import (
+from someipy._internal.someip_header import SomeIpHeader
+from someipy._internal.someip_sd_header import *
+from someipy._internal.someip_sd_extractors import *
+from someipy._internal.session_handler import SessionHandler
+from someipy._internal.utils import (
     create_rcv_multicast_socket,
     create_udp_socket,
     DatagramAdapter,
 )
-from src._internal.service_discovery_abcs import *
-from src._internal.logging import get_logger
+from someipy._internal.service_discovery_abcs import *
+from someipy._internal.logging import get_logger
 
 _logger = get_logger("service_discovery")
 

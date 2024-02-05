@@ -1,2 +1,4 @@
 .vscode/
+dist/
+someipy.egg-info/
 __pycache__

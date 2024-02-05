@@ -4,8 +4,8 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import List, Tuple, TypeVar, Union
 
-from src._internal.utils import set_bit_at_position, is_bit_set
-from src._internal.someip_header import SomeIpHeader
+from someipy._internal.utils import set_bit_at_position, is_bit_set
+from someipy._internal.someip_header import SomeIpHeader
 
 # Constants for byte positions inside the SD header
 SD_POSITION_ENTRY_LENGTH = 20

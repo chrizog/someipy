@@ -1,7 +1,4 @@
-import sys
-sys.path.append("..")
-
-from src.serialization import *
+from someipy.serialization import *
 
 # With someipy it's possible to either send and receive payloads unserialized simply as bytes-objects
 # You can also define the payloads structure directly as Python classes and serialize your Python object
