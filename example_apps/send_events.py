@@ -1,16 +1,11 @@
-import sys
-sys.path.append("..")
-
 import asyncio
 import ipaddress
 import logging
 
-import src.service_discovery
-import src._internal.someip_header
-import src._internal.someip_sd_header
-import src.server_service_instance
-from src.logging import set_someipy_log_level
-from src.serialization import Uint8, Uint64, Float32
+from someipy.service_discovery import construct_service_discovery
+from someipy.server_service_instance import ServerServiceInstance
+from someipy.logging import set_someipy_log_level
+from someipy.serialization import Uint8, Uint64, Float32
 from temperature_msg import TemparatureMsg
 
 SD_MULTICAST_GROUP = "224.224.224.245"
@@ -28,7 +23,7 @@ async def main():
     # Since the construction of the class ServiceDiscoveryProtocol is not trivial and would require an async __init__ function
     # use the construct_service_discovery function
     # The local interface IP address needs to be passed so that the src-address of all SD UDP packets is correctly set
-    service_discovery = await src.service_discovery.construct_service_discovery(SD_MULTICAST_GROUP, SD_PORT, INTERFACE_IP)
+    service_discovery = await construct_service_discovery(SD_MULTICAST_GROUP, SD_PORT, INTERFACE_IP)
 
     # 1. For sending events use a ServerServiceInstance
     # 2. Pass the service and instance ID, version and endpoint and TTL. The endpoint is needed again as the src-address
@@ -36,7 +31,7 @@ async def main():
     # 3. The ServiceDiscoveryProtocol object has to be passed as well, so the ServerServiceInstance can offer his service to 
     # other ECUs
     # 4. cyclic_offer_delay_ms is the period of sending cyclic SD Offer service entries
-    service_instance_temperature = src.server_service_instance.ServerServiceInstance(
+    service_instance_temperature = ServerServiceInstance(
         service_id=1,
         instance_id=1000,
         major_version=1,
@@ -52,7 +47,7 @@ async def main():
     service_discovery.attach(service_instance_temperature)
 
     # For demonstration purposes we will construct a second ServerServiceInstance
-    service_instance_2 = src.server_service_instance.ServerServiceInstance(
+    service_instance_2 = ServerServiceInstance(
         service_id=2,
         instance_id=2000,
         major_version=1,

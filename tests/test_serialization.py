@@ -1,5 +1,8 @@
+import sys
+sys.path.append("src")
+
 import pytest
-from src.serialization import *
+from someipy.serialization import *
 
 
 def test_base_types_len():

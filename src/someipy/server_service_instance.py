@@ -1,23 +1,23 @@
 from dataclasses import dataclass
 from typing import List
 
-from src.service_discovery import *
-from src._internal.message_types import MessageType
-from src._internal.someip_sd_builder import *
-from src._internal.someip_header import SomeIpHeader
-from src._internal.someip_sd_header import (
+from someipy.service_discovery import *
+from someipy._internal.message_types import MessageType
+from someipy._internal.someip_sd_builder import *
+from someipy._internal.someip_header import SomeIpHeader
+from someipy._internal.someip_sd_header import (
     SdService,
     TransportLayerProtocol,
     SdEventGroupEntry,
 )
 
-from src._internal.simple_timer import SimplePeriodicTimer
-from src._internal.utils import (
+from someipy._internal.simple_timer import SimplePeriodicTimer
+from someipy._internal.utils import (
     create_udp_socket,
     endpoint_to_str_int_tuple,
     EndpointType,
 )
-from src._internal.logging import get_logger
+from someipy._internal.logging import get_logger
 
 _logger = get_logger("server_service_instance")
 

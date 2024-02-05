@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from src._internal.someip_sd_header import *
-from src._internal.session_handler import SessionHandler
+from someipy._internal.someip_sd_header import *
+from someipy._internal.session_handler import SessionHandler
 
 
 class ServiceDiscoveryObserver(ABC):
