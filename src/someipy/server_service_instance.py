@@ -21,6 +21,7 @@ from someipy._internal.logging import get_logger
 
 _logger = get_logger("server_service_instance")
 
+
 @dataclass
 class EventGroup:
     eventgroup_id: int
@@ -121,7 +122,6 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         sd_event_group: SdEventGroupEntry,
         ipv4_endpoint_option: SdIPV4EndpointOption,
     ) -> None:
-        
         eventgroup_ids = [e.eventgroup_id for e in self.eventgroups]
 
         # [PRS_SOMEIPSD_00829] When receiving a SubscribeEventgroupAck or Sub-
@@ -134,7 +134,10 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             and sd_event_group.sd_entry.instance_id == self.instance_id
             # and sd_event_group.eventgroup_id in eventgroup_ids
         ):
-            (session_id, reboot_flag) = self.sd_sender.get_unicast_session_handler().update_session()
+            (
+                session_id,
+                reboot_flag,
+            ) = self.sd_sender.get_unicast_session_handler().update_session()
             # TODO: enable major version check
             # sd_event_group.sd_entry.major_version == self.major_version:
             # print("Service received subscribe entry -> send back ACK")

@@ -182,6 +182,7 @@ class Float32:
     def __eq__(self, other) -> Bool:
         return self.serialize() == other.serialize()
 
+
 @dataclass
 class Float64:
     value: float = 0.0
@@ -195,7 +196,7 @@ class Float64:
     def deserialize(self, payload):
         (self.value,) = struct.unpack(">d", payload)
         return self
-    
+
     def __eq__(self, other) -> Bool:
         return self.serialize() == other.serialize()
 
@@ -244,7 +245,10 @@ class SomeIpPayload:
             pos += type_length
         return self
 
-T = TypeVar('T')
+
+T = TypeVar("T")
+
+
 class SomeIpFixedSizeArray(Generic[T]):
     # Length fields are not supported yet
 
@@ -268,7 +272,7 @@ class SomeIpFixedSizeArray(Generic[T]):
                 if self.data[i] != other.data[i]:
                     return False
             return True
-        
+
         return False
 
     def __len__(self) -> int:
@@ -286,8 +290,10 @@ class SomeIpFixedSizeArray(Generic[T]):
     def deserialize(self, payload: bytes):
         if len(self.data) == 0:
             return
-        
+
         single_element_length = len(self.data[0])
         for i in range(len(self.data)):
-            self.data[i].deserialize(payload[(i*single_element_length):((i+1)*single_element_length)])
+            self.data[i].deserialize(
+                payload[(i * single_element_length) : ((i + 1) * single_element_length)]
+            )
         return self

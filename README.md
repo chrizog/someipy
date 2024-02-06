@@ -12,6 +12,14 @@ someipy is based on the specification version of R22-11:
 
 The library is currently developed and tested under Ubuntu 22.04 and Python 3.12.
 
+## Installation
+
+The package can be installed from [PyPi](https://pypi.org/project/someipy/).
+
+```bash
+pip install someipy
+```
+
 ## Example Applications
 
 In the directory [example_apps](./example_apps/), examples including explanations, can be found for using the someipy library. In [temperature_msg.py](./example_apps/temperature_msg.py), a payload interface "TemperatureMsg" is defined, which can be serialized and deserialized. In [send_events.py](./example_apps/send_events.py), the service discovery and two services are instantiated. The "TemperatureMsg" is serialized and used as the payload for sending events.
