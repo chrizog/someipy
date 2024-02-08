@@ -1,14 +1,22 @@
 from dataclasses import dataclass
 from typing import List
 
-from someipy.service_discovery import *
 from someipy._internal.message_types import MessageType
-from someipy._internal.someip_sd_builder import *
+from someipy._internal.someip_sd_builder import (
+    build_subscribe_eventgroup_ack_entry,
+    build_offer_service_sd_header,
+    build_subscribe_eventgroup_ack_sd_header,
+)
 from someipy._internal.someip_header import SomeIpHeader
 from someipy._internal.someip_sd_header import (
     SdService,
     TransportLayerProtocol,
     SdEventGroupEntry,
+    SdIPV4EndpointOption,
+)
+from someipy._internal.service_discovery_abcs import (
+    ServiceDiscoveryObserver,
+    ServiceDiscoverySender,
 )
 
 from someipy._internal.simple_timer import SimplePeriodicTimer
@@ -79,7 +87,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
 
     def add_eventgroup(self, eventgroup: EventGroup):
         ids = [e.eventgroup_id for e in self.eventgroups]
-        if not eventgroup.eventgroup_id in ids:
+        if eventgroup.eventgroup_id not in ids:
             self.eventgroups.append(eventgroup)
 
     def find_service_update(self):
@@ -122,7 +130,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         sd_event_group: SdEventGroupEntry,
         ipv4_endpoint_option: SdIPV4EndpointOption,
     ) -> None:
-        eventgroup_ids = [e.eventgroup_id for e in self.eventgroups]
+        # eventgroup_ids = [e.eventgroup_id for e in self.eventgroups]
 
         # [PRS_SOMEIPSD_00829] When receiving a SubscribeEventgroupAck or Sub-
         # scribeEventgroupNack the Service ID, Instance ID, Eventgroup ID, and Major Ver-
