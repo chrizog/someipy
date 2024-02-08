@@ -31,7 +31,6 @@ The library is still under development. The current major limitations and deviat
 ### SOME/IP
 
 - Only events (and field notifiers) are supported. Methods (and field getters/setters) are not supported yet.
-- Receiving events is not supported yet. The server-side only is supported for now. Client service instances for receiving SOME/IP events are supported soon.
 - Only UDP services are supported.
 - Only unicast services are supported.
 - SOME/IP-TP is not supported.
