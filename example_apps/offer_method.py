@@ -1,19 +1,26 @@
 import asyncio
 import ipaddress
 import logging
+from typing import Tuple
 
 from someipy.service_discovery import construct_service_discovery
-from someipy.server_service_instance import construct_server_service_instance
+from someipy.server_service_instance import Method, construct_server_service_instance
 from someipy.logging import set_someipy_log_level
-from someipy.serialization import Uint8, Uint64, Float32
-from temperature_msg import TemparatureMsg
 
 SD_MULTICAST_GROUP = "224.224.224.245"
 SD_PORT = 30490
 INTERFACE_IP = "127.0.0.1"
 
-SAMPLE_EVENTGROUP_ID = 20
-SAMPLE_EVENT_ID = 32796
+SAMPLE_INSTANCE_ID = 1000
+SAMPLE_SERVICE_ID = 1001
+SAMPLE_METHOD_ID = 1002
+
+def temperature_method_handler(input_data: bytes) -> Tuple[bool, bytes]:
+    # Process the data and return True/False indicating the success of the operation
+    # and the result of the method call in serialized form (bytes object)
+    # If False is returned an error message will be sent back to the client. In that case
+    # the payload can be an empty bytes-object
+    return True, input_data
 
 async def main():
 
@@ -32,8 +39,8 @@ async def main():
     # other ECUs
     # 4. cyclic_offer_delay_ms is the period of sending cyclic SD Offer service entries
     service_instance_temperature = await construct_server_service_instance(
-        service_id=1,
-        instance_id=1000,
+        service_id=SAMPLE_SERVICE_ID,
+        instance_id=SAMPLE_INSTANCE_ID,
         major_version=1,
         minor_version=0,
         endpoint=(ipaddress.IPv4Address(INTERFACE_IP), 3000), # src IP and port of the service
@@ -42,57 +49,30 @@ async def main():
         cyclic_offer_delay_ms=2000
     )
 
+    # Create a method by defining a method ID and a method handler function
+    # The method handler function takes in a payload bytes-object as an argument and
+    # has to return a boolean (success) and a bytes-object for the result
+    temperature_method = Method(method_id=SAMPLE_METHOD_ID, method_handler=temperature_method_handler)
+    
+    # Append the method to the server instance
+    service_instance_temperature.add_method(temperature_method)
+
     # The service instance has to be attached always to the ServiceDiscoveryProtocol object, so that the service instance
     # is notified by the ServiceDiscoveryProtocol about e.g. subscriptions from other ECUs
     service_discovery.attach(service_instance_temperature)
-
-    # For demonstration purposes we will construct a second ServerServiceInstance
-    service_instance_2 = await construct_server_service_instance(
-        service_id=2,
-        instance_id=2000,
-        major_version=1,
-        minor_version=0,
-        endpoint=(ipaddress.IPv4Address(INTERFACE_IP), 3001), # src IP and port of the service
-        ttl=5,
-        sd_sender=service_discovery,
-        cyclic_offer_delay_ms=2000
-    )
-    service_discovery.attach(service_instance_2)
 
     # After constructing and attaching ServerServiceInstances to the ServiceDiscoveryProtocol objects the
     # start_offer method has to be called. This will start an internal timer, which will periodically send
     # Offer service entries with a period of "cyclic_offer_delay_ms" which has been passed above
     print("Start offering services..")
     service_instance_temperature.start_offer()
-    service_instance_2.start_offer()
-
-    tmp_msg = TemparatureMsg()
-
-    # Reminder: Do NOT write "tmp_msg.version.major = 1". Always use the provided classes in someipy like Uint8,
-    # so that the data can be propery serialized. Python literals won't be serialized properly
-    tmp_msg.version.major = Uint8(1)
-    tmp_msg.version.minor = Uint8(0)
-    
-    tmp_msg.measurements.data[0] = Float32(20.0)
-    tmp_msg.measurements.data[1] = Float32(21.0)
-    tmp_msg.measurements.data[2] = Float32(22.0)
-    tmp_msg.measurements.data[3] = Float32(23.0)
 
     try:
-        # Either cyclically send events in an endless loop..
-        while True:
-            await asyncio.sleep(5)
-            tmp_msg.timestamp = Uint64(tmp_msg.timestamp.value + 1)
-            payload = tmp_msg.serialize()
-            service_instance_temperature.send_event(SAMPLE_EVENTGROUP_ID, SAMPLE_EVENT_ID, payload)
-
-        # .. or in case your app is waiting for external events, using await asyncio.Future() to
-        # keep the task alive
-        # await asyncio.Future()
-    except asyncio.CancelledError as e:
+        # Keep the task alive until Crtl+C is pressed
+        await asyncio.Future()
+    except asyncio.CancelledError as _:
         print("Stop offering services..")
         await service_instance_temperature.stop_offer()
-        await service_instance_2.stop_offer()
     finally:
         print("Service Discovery close..")
         service_discovery.close()
@@ -103,5 +83,5 @@ async def main():
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except KeyboardInterrupt as e:
+    except KeyboardInterrupt as _:
         pass

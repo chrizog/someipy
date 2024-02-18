@@ -1,13 +1,14 @@
+import asyncio
 from dataclasses import dataclass
-from typing import List
+from typing import List, Callable, Tuple, Union, Any, Dict
 
-from someipy._internal.message_types import MessageType
+from someipy._internal.message_types import MessageType, ReturnCode
 from someipy._internal.someip_sd_builder import (
     build_subscribe_eventgroup_ack_entry,
     build_offer_service_sd_header,
     build_subscribe_eventgroup_ack_sd_header,
 )
-from someipy._internal.someip_header import SomeIpHeader
+from someipy._internal.someip_header import SomeIpHeader, get_payload_from_someip_message
 from someipy._internal.someip_sd_header import (
     SdService,
     TransportLayerProtocol,
@@ -21,6 +22,7 @@ from someipy._internal.service_discovery_abcs import (
 
 from someipy._internal.simple_timer import SimplePeriodicTimer
 from someipy._internal.utils import (
+    DatagramAdapter,
     create_udp_socket,
     endpoint_to_str_int_tuple,
     EndpointType,
@@ -42,6 +44,14 @@ class EventGroupSubscriber:
     eventgroup_id: int
     endpoint: EndpointType
 
+@dataclass
+class Method:
+    method_id: int
+    method_handler: Callable[[bytes], Tuple[bool, bytes]]
+
+    def __eq__(self, __value: object) -> bool:
+        return self.method_id == __value.method_id
+
 
 class ServerServiceInstance(ServiceDiscoveryObserver):
     service_id: int
@@ -56,6 +66,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
 
     eventgroups: List[EventGroup]
     subscribers: List[EventGroupSubscriber]
+    methods: Dict[int, Method]
     offer_timer: SimplePeriodicTimer
 
     def __init__(
@@ -82,6 +93,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
 
         self.eventgroups = []
         self.subscribers = []
+        self.methods = dict()
 
         self.offer_timer = None
 
@@ -89,6 +101,55 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         ids = [e.eventgroup_id for e in self.eventgroups]
         if eventgroup.eventgroup_id not in ids:
             self.eventgroups.append(eventgroup)
+
+    def add_method(self, method: Method):
+        if self.methods.get(method.method_id) is None:
+            self.methods[method.method_id] = method
+
+    def datagram_received(self, data: bytes, addr: Tuple[Union[str, Any], int]) -> None:
+        header = SomeIpHeader.from_buffer(data)
+        payload_to_return = bytes()
+        header_to_return = header
+
+        def send_response():
+            self.sender_socket.sendto(
+                    header_to_return.to_buffer() + payload_to_return,
+                    addr)
+
+        if header.service_id != self.service_id:
+            _logger.warn(f"Unknown service ID received from {addr}: ID 0x{header.service_id:04X}")
+            header_to_return.message_type = MessageType.RESPONSE.value
+            header_to_return.return_code = ReturnCode.E_UNKNOWN_SERVICE.value
+            send_response()
+            return
+        
+        if header.method_id not in self.methods.keys():
+            _logger.warn(f"Unknown method ID received from {addr}: ID 0x{header.method_id:04X}")
+            header_to_return.message_type = MessageType.RESPONSE.value
+            header_to_return.return_code = ReturnCode.E_UNKNOWN_METHOD.value
+            send_response()
+            return
+        
+        # TODO: Test for protocol and interface version
+
+        if header.message_type == MessageType.REQUEST.value and header.return_code == 0x00:
+
+            payload_in = get_payload_from_someip_message(header, data)
+            (success, payload_to_return) = self.methods[header.method_id].method_handler(payload_in)
+
+            if not success:
+                _logger.debug(f"Return ERROR message type to {addr} for service and instance ID: 0x{self.service_id:04X} / 0x{self.instance_id:04X}")
+                header_to_return.message_type = MessageType.ERROR.value
+            else:
+                _logger.debug(f"Return RESPONSE message type to {addr} for service and instance ID: 0x{self.service_id:04X} / 0x{self.instance_id:04X}")
+                header_to_return.message_type = MessageType.RESPONSE.value
+
+            send_response()
+        else:
+            _logger.warn(f"Unknown message type received from {addr}: Type 0x{header.message_type:04X}")
+
+    def connection_lost(self, exc: Exception) -> None:
+        pass
 
     def find_service_update(self):
         # TODO: implement SD behaviour and send back offer
@@ -214,3 +275,28 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             self.offer_timer.stop()
             await self.offer_timer.task
         # TODO: send out a stop offer sd message before stopping the timer
+
+async def construct_server_service_instance(
+    service_id: int,
+    instance_id: int,
+    major_version: int,
+    minor_version: int,
+    endpoint: EndpointType,
+    ttl: int = 0,
+    sd_sender=None,
+    cyclic_offer_delay_ms=2000
+) -> ServerServiceInstance:
+    
+    server_instance = ServerServiceInstance(
+        service_id, instance_id, major_version, minor_version, endpoint, ttl, sd_sender, cyclic_offer_delay_ms
+    )
+
+    loop = asyncio.get_running_loop()
+    rcv_socket = create_udp_socket(str(endpoint[0]), endpoint[1])
+
+    unicast_transport, _ = await loop.create_datagram_endpoint(
+        lambda: DatagramAdapter(target=server_instance), sock=rcv_socket
+    )
+    server_instance.unicast_transport = unicast_transport
+
+    return server_instance

@@ -30,7 +30,8 @@ The library is still under development. The current major limitations and deviat
 
 ### SOME/IP
 
-- Only events (and field notifiers) are supported. Methods (and field getters/setters) are not supported yet.
+- Events (and field notifiers) are supported.
+- Methods are only supported on server side (offering methods). Calling methods (clients) are not supported yet.
 - Only UDP services are supported.
 - Only unicast services are supported.
 - SOME/IP-TP is not supported.
@@ -46,7 +47,7 @@ The library is still under development. The current major limitations and deviat
 
 ### De-/Serialization
 
-- Only fixed size arrays are supported.
+- Only fixed size arrays are supported. Dynamically sized arrays are not supported.
 - Optional length fields for SOME/IP arrays are not supported.
 - Strings are not supported yet.
 - Configuration of padding is not supported yet.
