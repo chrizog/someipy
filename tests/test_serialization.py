@@ -1,8 +1,19 @@
-import sys
-sys.path.append("src")
-
-import pytest
-from someipy.serialization import *
+from dataclasses import dataclass
+from someipy.serialization import (
+    Uint8,
+    Uint16,
+    Uint32,
+    Uint64,
+    Sint8,
+    Sint16,
+    Sint32,
+    Sint64,
+    Bool,
+    Float32,
+    Float64,
+    SomeIpPayload,
+    SomeIpFixedSizeArray,
+)
 
 
 def test_base_types_len():
@@ -123,7 +134,7 @@ def test_fixed_size_array_serialization_and_deserialization():
     a.data[2] = Uint8(3)
     a.data[3] = Uint8(4)
     # Expected hex: 0x 01 02 03 04
-    assert bytes.fromhex("01020304") == a.serialize()    
+    assert bytes.fromhex("01020304") == a.serialize()
 
     a_again = SomeIpFixedSizeArray(Uint8, 4).deserialize(bytes.fromhex("01020304"))
     assert a_again == a

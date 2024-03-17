@@ -3,15 +3,23 @@ import ipaddress
 from typing import Any, Union, Tuple, List
 
 from someipy._internal.someip_header import SomeIpHeader
-from someipy._internal.someip_sd_header import *
-from someipy._internal.someip_sd_extractors import *
+from someipy._internal.someip_sd_header import SomeIpSdHeader
+from someipy._internal.someip_sd_extractors import (
+    extract_offered_services,
+    extract_subscribe_eventgroup_entries,
+    extract_subscribe_ack_eventgroup_entries,
+)
 from someipy._internal.session_handler import SessionHandler
 from someipy._internal.utils import (
     create_rcv_multicast_socket,
     create_udp_socket,
     DatagramAdapter,
 )
-from someipy._internal.service_discovery_abcs import *
+from someipy._internal.service_discovery_abcs import (
+    ServiceDiscoveryObserver,
+    ServiceDiscoverySender,
+    ServiceDiscoverySubject,
+)
 from someipy._internal.logging import get_logger
 
 _logger = get_logger("service_discovery")
@@ -85,11 +93,13 @@ class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
             for o in self.attached_observers:
                 o.subscribe_eventgroup_update(event_group_entry, ipv4_endpoint_option)
 
-        for event_group_entry in extract_subscribe_ack_eventgroup_entries(someip_sd_header):
+        for event_group_entry in extract_subscribe_ack_eventgroup_entries(
+            someip_sd_header
+        ):
             _logger.debug(
                 f"Received subscribe ACK for instance 0x{event_group_entry.sd_entry.instance_id:04X}, service 0x{event_group_entry.sd_entry.service_id:04X}, eventgroup 0x{event_group_entry.eventgroup_id:04X}"
             )
-            #for o in self.attached_observers:
+            # for o in self.attached_observers:
             #    o.sub
 
     def connection_lost(self, exc: Exception) -> None:
