@@ -1,5 +1,6 @@
+import ipaddress
 from abc import ABC, abstractmethod
-from someipy._internal.someip_sd_header import *
+from someipy._internal.someip_sd_header import SdService, SdEventGroupEntry, SdIPV4EndpointOption
 from someipy._internal.session_handler import SessionHandler
 
 

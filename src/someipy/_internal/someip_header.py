@@ -21,6 +21,8 @@ class SomeIpHeader:
     message_type: int
     return_code: int
 
+    MINIMAL_SIZE = 16
+
     def is_sd_header(self) -> bool:
         return (
             self.service_id == SERVICE_ID_SD
