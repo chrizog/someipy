@@ -2,3 +2,6 @@
 dist/
 someipy.egg-info/
 __pycache__
+
+test_apps/build
+test_apps/install

@@ -1,9 +1,9 @@
 import asyncio
 from typing import Tuple
 
-from someipy._internal.tcp_client_manager import TcpClientManager, TcpClientProtocol
 from someipy.service import Service
 
+from someipy._internal.tcp_client_manager import TcpClientManager, TcpClientProtocol
 from someipy._internal.message_types import MessageType, ReturnCode
 from someipy._internal.someip_sd_builder import (
     build_subscribe_eventgroup_ack_entry,
@@ -24,7 +24,6 @@ from someipy._internal.service_discovery_abcs import (
     ServiceDiscoveryObserver,
     ServiceDiscoverySender,
 )
-
 from someipy._internal.simple_timer import SimplePeriodicTimer
 from someipy._internal.utils import (
     create_udp_socket,
@@ -43,17 +42,26 @@ _logger = get_logger("server_service_instance")
 
 
 class ServerServiceInstance(ServiceDiscoveryObserver):
-    service: Service
-    instance_id: int
-    endpoint: EndpointType
-    protocol: TransportLayerProtocol
-    someip_endpoint: SomeipEndpoint
-    ttl: int
-    sd_sender: ServiceDiscoverySender
-    cyclic_offer_delay_ms: int
+    """AI is creating summary for ServerServiceInstance
 
-    subscribers: Subscribers
-    offer_timer: SimplePeriodicTimer
+    Args:
+        ServiceDiscoveryObserver ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
+    
+    _service: Service
+    _instance_id: int
+    _endpoint: EndpointType
+    _protocol: TransportLayerProtocol
+    _someip_endpoint: SomeipEndpoint
+    _ttl: int
+    _sd_sender: ServiceDiscoverySender
+    _cyclic_offer_delay_ms: int
+
+    _subscribers: Subscribers
+    _offer_timer: SimplePeriodicTimer
 
     def __init__(
         self,
@@ -66,24 +74,24 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         sd_sender=None,
         cyclic_offer_delay_ms=2000,
     ):
-        self.service = service
-        self.instance_id = instance_id
-        self.endpoint = endpoint
-        self.protocol = protocol
-        self.someip_endpoint = someip_endpoint
-        self.ttl = ttl
-        self.sd_sender = sd_sender
-        self.cyclic_offer_delay_ms = cyclic_offer_delay_ms
+        self._service = service
+        self._instance_id = instance_id
+        self._endpoint = endpoint
+        self._protocol = protocol
+        self._someip_endpoint = someip_endpoint
+        self._ttl = ttl
+        self._sd_sender = sd_sender
+        self._cyclic_offer_delay_ms = cyclic_offer_delay_ms
 
-        self.subscribers = Subscribers()
-        self.offer_timer = None
+        self._subscribers = Subscribers()
+        self._offer_timer = None
 
     def send_event(self, event_group_id: int, event_id: int, payload: bytes) -> None:
-        self.subscribers.update()
+        self._subscribers.update()
 
         length = 8 + len(payload)
         someip_header = SomeIpHeader(
-            service_id=self.service.id,
+            service_id=self._service.id,
             method_id=event_id,
             length=length,
             client_id=0x00,  # TODO
@@ -93,16 +101,13 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             message_type=MessageType.NOTIFICATION.value,
             return_code=0x00,
         )
-        _logger.debug(
-            f"Send event for instance 0x{self.instance_id:04X}, service: 0x{self.service.id:04X}"
-        )
 
-        for sub in self.subscribers.subscribers:
+        for sub in self._subscribers.subscribers:
             if sub.eventgroup_id == event_group_id:
                 _logger.debug(
-                    f"Send event for instance 0x{self.instance_id:04X}, service: 0x{self.service.id:04X} to {sub.endpoint[0]}:{sub.endpoint[1]}"
+                    f"Send event for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X} to {sub.endpoint[0]}:{sub.endpoint[1]}"
                 )
-                self.someip_endpoint.sendto(
+                self._someip_endpoint.sendto(
                     someip_header.to_buffer() + payload,
                     endpoint_to_str_int_tuple(sub.endpoint),
                 )
@@ -148,12 +153,12 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
 
             if not success:
                 _logger.debug(
-                    f"Return ERROR message type to {addr} for service and instance ID: 0x{self.service_id:04X} / 0x{self.instance_id:04X}"
+                    f"Return ERROR message type to {addr} for service and instance ID: 0x{self.service_id:04X} / 0x{self._instance_id:04X}"
                 )
                 header_to_return.message_type = MessageType.ERROR.value
             else:
                 _logger.debug(
-                    f"Return RESPONSE message type to {addr} for service and instance ID: 0x{self.service_id:04X} / 0x{self.instance_id:04X}"
+                    f"Return RESPONSE message type to {addr} for service and instance ID: 0x{self.service_id:04X} / 0x{self._instance_id:04X}"
                 )
                 header_to_return.message_type = MessageType.RESPONSE.value
 
@@ -182,17 +187,17 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         # an Eventgroup of a Service Instance.
         # TODO: enable major version check
         if (
-            sd_event_group.sd_entry.service_id == self.service.id
-            and sd_event_group.sd_entry.instance_id == self.instance_id
-            and sd_event_group.eventgroup_id in self.service.eventgroupids
+            sd_event_group.sd_entry.service_id == self._service.id
+            and sd_event_group.sd_entry.instance_id == self._instance_id
+            and sd_event_group.eventgroup_id in self._service.eventgroupids
         ):
             (
                 session_id,
                 reboot_flag,
-            ) = self.sd_sender.get_unicast_session_handler().update_session()
+            ) = self._sd_sender.get_unicast_session_handler().update_session()
 
             _logger.debug(
-                f"Send Subscribe ACK for instance 0x{self.instance_id:04X}, service: 0x{self.service.id:04X}, TTL: {sd_event_group.sd_entry.ttl}"
+                f"Send Subscribe ACK for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}, TTL: {sd_event_group.sd_entry.ttl}"
             )
             ack_entry = build_subscribe_eventgroup_ack_entry(
                 service_id=sd_event_group.sd_entry.service_id,
@@ -205,12 +210,12 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
                 entry=ack_entry, session_id=session_id, reboot_flag=reboot_flag
             )
 
-            self.sd_sender.send_unicast(
+            self._sd_sender.send_unicast(
                 buffer=header_output.to_buffer(),
                 dest_ip=ipv4_endpoint_option.ipv4_address,
             )
 
-            self.subscribers.add_subscriber(
+            self._subscribers.add_subscriber(
                 EventGroupSubscriber(
                     eventgroup_id=sd_event_group.eventgroup_id,
                     endpoint=(
@@ -230,40 +235,40 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         (
             session_id,
             reboot_flag,
-        ) = self.sd_sender.get_multicast_session_handler().update_session()
+        ) = self._sd_sender.get_multicast_session_handler().update_session()
 
         _logger.debug(
-            f"Offer service for instance 0x{self.instance_id:04X}, service: 0x{self.service.id:04X}, TTL: {self.ttl}, version: {self.service.major_version}.{self.service.minor_version}, session ID: {session_id}"
+            f"Offer service for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}, TTL: {self._ttl}, version: {self._service.major_version}.{self._service.minor_version}, session ID: {session_id}"
         )
 
         service_to_offer = SdService(
-            service_id=self.service.id,
-            instance_id=self.instance_id,
+            service_id=self._service.id,
+            instance_id=self._instance_id,
             major_version=1,
             minor_version=0,
-            ttl=self.ttl,
-            endpoint=self.endpoint,
-            protocol=self.protocol,
+            ttl=self._ttl,
+            endpoint=self._endpoint,
+            protocol=self._protocol,
         )
         sd_header = build_offer_service_sd_header(
             service_to_offer, session_id, reboot_flag
         )
-        self.sd_sender.send_multicast(sd_header.to_buffer())
+        self._sd_sender.send_multicast(sd_header.to_buffer())
 
     def start_offer(self):
-        self.offer_timer = SimplePeriodicTimer(
-            self.cyclic_offer_delay_ms / 1000.0, self.offer_timer_callback
+        self._offer_timer = SimplePeriodicTimer(
+            self._cyclic_offer_delay_ms / 1000.0, self.offer_timer_callback
         )
-        self.offer_timer.start()
+        self._offer_timer.start()
 
     async def stop_offer(self):
         _logger.debug(
-            f"Stop offer for instance 0x{self.instance_id:04X}, service: 0x{self.service.id:04X}"
+            f"Stop offer for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}"
         )
 
-        if self.offer_timer is not None:
-            self.offer_timer.stop()
-            await self.offer_timer.task
+        if self._offer_timer is not None:
+            self._offer_timer.stop()
+            await self._offer_timer.task
         # TODO: send out a stop offer sd message before stopping the timer
 
 
