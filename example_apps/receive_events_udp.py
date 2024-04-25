@@ -2,6 +2,7 @@ import asyncio
 import ipaddress
 import logging
 
+from someipy import ServiceBuilder, EventGroup, TransportLayerProtocol, SomeIpMessage
 from someipy.service_discovery import construct_service_discovery
 from someipy.client_service_instance import construct_client_service_instance
 from someipy.logging import set_someipy_log_level
@@ -11,12 +12,15 @@ SD_MULTICAST_GROUP = "224.224.224.245"
 SD_PORT = 30490
 INTERFACE_IP = "127.0.0.1"
 
-SAMPLE_EVENTGROUP_ID = 20
+SAMPLE_SERVICE_ID = 0x1234
+SAMPLE_INSTANCE_ID = 0x5678
+SAMPLE_EVENTGROUP_ID = 0x0321
+SAMPLE_EVENT_ID = 0x0123
 
 
-def temperature_callback(payload: bytes) -> None:
-    print(f"Received {len(payload)} bytes.")
-    temperature_msg = TemparatureMsg().deserialize(payload)
+def temperature_callback(someip_message: SomeIpMessage) -> None:
+    print(f"Received {len(someip_message.payload)} bytes.")
+    temperature_msg = TemparatureMsg().deserialize(someip_message.payload)
     print(temperature_msg)
 
 
@@ -37,14 +41,24 @@ async def main():
     # and port to which the events are sent to and the client will listen to
     # 3. The ServiceDiscoveryProtocol object has to be passed as well, so the ClientServiceInstance can offer his service to
     # other ECUs
+    temperature_eventgroup = EventGroup(
+        id=SAMPLE_EVENTGROUP_ID, event_ids=[SAMPLE_EVENT_ID]
+    )
+    temperature_service = (
+        ServiceBuilder()
+        .with_service_id(SAMPLE_SERVICE_ID)
+        .with_major_version(1)
+        .with_eventgroup(temperature_eventgroup)
+        .build()
+    )
+
     service_instance_temperature = await construct_client_service_instance(
-        service_id=1,
-        instance_id=1000,
-        major_version=1,
-        minor_version=0,
+        service=temperature_service,
+        instance_id=SAMPLE_INSTANCE_ID,
         endpoint=(ipaddress.IPv4Address(INTERFACE_IP), 3002),
         ttl=5,
         sd_sender=service_discovery,
+        protocol=TransportLayerProtocol.UDP
     )
 
     # It's possible to optionally register a callback function which will be called when an event from the

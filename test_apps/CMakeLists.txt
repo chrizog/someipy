@@ -5,21 +5,22 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
 
 find_package(vsomeip3 CONFIG REQUIRED)
 
-# TODO: Common function for building a single test target
-function(add_test_app_target)
-
-
-    
-endfunction(add_test_app_target)
-
-
-add_executable(send_events_udp send_events_udp/send_events_udp.cpp)
-target_link_libraries(send_events_udp ${VSOMEIP_LIBRARIES} pthread)
-
 set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/install")
 
-install(TARGETS send_events_udp
-    RUNTIME DESTINATION send_events_udp)
+function(create_test_target target_name)
 
-file(GLOB JSON_FILES "${CMAKE_SOURCE_DIR}/send_events_udp/*.json" "${CMAKE_SOURCE_DIR}/send_events_udp/*.sh")
-install(FILES ${JSON_FILES} DESTINATION send_events_udp)
+    add_executable(${target_name} ${target_name}/${target_name}.cpp)
+    target_link_libraries(${target_name} ${VSOMEIP_LIBRARIES} pthread)
+
+    install(TARGETS ${target_name}
+        RUNTIME DESTINATION ${target_name})
+
+    file(GLOB ADDITIONAL_FILES "${CMAKE_SOURCE_DIR}/${target_name}/*.json" "${CMAKE_SOURCE_DIR}/${target_name}/*.sh")
+    install(FILES ${ADDITIONAL_FILES} DESTINATION ${target_name})
+    
+endfunction()
+
+# The same app can be used for UDP and TCP for the "send_events" example app
+create_test_target("send_events")
+
+create_test_target("receive_events_udp")
