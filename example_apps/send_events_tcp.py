@@ -2,10 +2,8 @@ import asyncio
 import ipaddress
 import logging
 
-from someipy import TransportLayerProtocol
-from someipy.service import ServiceBuilder, EventGroup
+from someipy import TransportLayerProtocol, ServiceBuilder, EventGroup, construct_server_service_instance
 from someipy.service_discovery import construct_service_discovery
-from someipy.server_service_instance import construct_server_service_instance
 from someipy.logging import set_someipy_log_level
 from someipy.serialization import Uint8, Uint64, Float32
 from temperature_msg import TemparatureMsg
@@ -83,7 +81,7 @@ async def main():
     try:
         # Either cyclically send events in an endless loop..
         while True:
-            await asyncio.sleep(5)
+            await asyncio.sleep(1)
             tmp_msg.timestamp = Uint64(tmp_msg.timestamp.value + 1)
             payload = tmp_msg.serialize()
             service_instance_temperature.send_event(

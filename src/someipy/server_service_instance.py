@@ -42,15 +42,6 @@ _logger = get_logger("server_service_instance")
 
 
 class ServerServiceInstance(ServiceDiscoveryObserver):
-    """AI is creating summary for ServerServiceInstance
-
-    Args:
-        ServiceDiscoveryObserver ([type]): [description]
-
-    Returns:
-        [type]: [description]
-    """
-    
     _service: Service
     _instance_id: int
     _endpoint: EndpointType
@@ -70,7 +61,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         endpoint: EndpointType,
         protocol: TransportLayerProtocol,
         someip_endpoint: SomeipEndpoint,
-        ttl: int = 0,
+        ttl: int = 0,  # TTL used for SD Offer entries
         sd_sender=None,
         cyclic_offer_delay_ms=2000,
     ):
@@ -186,46 +177,54 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         # sion shall match exactly to the corresponding SubscribeEventgroup Entry to identify
         # an Eventgroup of a Service Instance.
         # TODO: enable major version check
-        if (
-            sd_event_group.sd_entry.service_id == self._service.id
-            and sd_event_group.sd_entry.instance_id == self._instance_id
-            and sd_event_group.eventgroup_id in self._service.eventgroupids
-        ):
-            (
-                session_id,
-                reboot_flag,
-            ) = self._sd_sender.get_unicast_session_handler().update_session()
+        if sd_event_group.sd_entry.service_id != self._service.id:
+            return
+        if sd_event_group.sd_entry.instance_id != self._instance_id:
+            return
+        if sd_event_group.eventgroup_id not in self._service.eventgroupids:
+            return
 
-            _logger.debug(
-                f"Send Subscribe ACK for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}, TTL: {sd_event_group.sd_entry.ttl}"
+        if ipv4_endpoint_option.protocol != self._protocol:
+            _logger.warn(
+                f"Subscribing a different protocol (TCP/UDP) than offered is not supported. Received subscribe for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X} "
+                "from {ipv4_endpoint_option.ipv4_address}/{ipv4_endpoint_option.port} with wrong protocol"
             )
-            ack_entry = build_subscribe_eventgroup_ack_entry(
-                service_id=sd_event_group.sd_entry.service_id,
-                instance_id=sd_event_group.sd_entry.instance_id,
-                major_version=sd_event_group.sd_entry.major_version,
+            return
+
+        (
+            session_id,
+            reboot_flag,
+        ) = self._sd_sender.get_unicast_session_handler().update_session()
+
+        _logger.debug(
+            f"Send Subscribe ACK for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}, TTL: {sd_event_group.sd_entry.ttl}"
+        )
+        ack_entry = build_subscribe_eventgroup_ack_entry(
+            service_id=sd_event_group.sd_entry.service_id,
+            instance_id=sd_event_group.sd_entry.instance_id,
+            major_version=sd_event_group.sd_entry.major_version,
+            ttl=sd_event_group.sd_entry.ttl,
+            event_group_id=sd_event_group.eventgroup_id,
+        )
+        header_output = build_subscribe_eventgroup_ack_sd_header(
+            entry=ack_entry, session_id=session_id, reboot_flag=reboot_flag
+        )
+
+        self._sd_sender.send_unicast(
+            buffer=header_output.to_buffer(),
+            dest_ip=ipv4_endpoint_option.ipv4_address,
+        )
+
+        self._subscribers.add_subscriber(
+            EventGroupSubscriber(
+                eventgroup_id=sd_event_group.eventgroup_id,
+                endpoint=(
+                    ipv4_endpoint_option.ipv4_address,
+                    ipv4_endpoint_option.port,
+                ),
                 ttl=sd_event_group.sd_entry.ttl,
-                event_group_id=sd_event_group.eventgroup_id,
             )
-            header_output = build_subscribe_eventgroup_ack_sd_header(
-                entry=ack_entry, session_id=session_id, reboot_flag=reboot_flag
-            )
-
-            self._sd_sender.send_unicast(
-                buffer=header_output.to_buffer(),
-                dest_ip=ipv4_endpoint_option.ipv4_address,
-            )
-
-            self._subscribers.add_subscriber(
-                EventGroupSubscriber(
-                    eventgroup_id=sd_event_group.eventgroup_id,
-                    endpoint=(
-                        ipv4_endpoint_option.ipv4_address,
-                        ipv4_endpoint_option.port,
-                    ),
-                    ttl=sd_event_group.sd_entry.ttl,
-                )
-            )
-            pass
+        )
 
     def subscribe_ack_eventgroup_update(self, _: SdEventGroupEntry) -> None:
         # Not needed for server instance
