@@ -57,7 +57,7 @@ class UDPSomeipEndpoint(SomeipEndpoint, asyncio.DatagramProtocol):
             self._transport.sendto(data, addr)
 
     def sendtoall(self, data: bytes) -> None:
-        # TODO: Implement later for multicast support
+        # TODO: Implement for multicast support
         raise NotImplementedError("No implementation for UDP yet")
 
     def shutdown(self) -> None:

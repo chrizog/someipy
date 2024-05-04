@@ -38,8 +38,7 @@ from someipy._internal.someip_endpoint import (
     UDPSomeipEndpoint,
 )
 
-_logger = get_logger("server_service_instance")
-
+_logger_name = "server_service_instance"
 
 class ServerServiceInstance(ServiceDiscoveryObserver):
     _service: Service
@@ -95,7 +94,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
 
         for sub in self._subscribers.subscribers:
             if sub.eventgroup_id == event_group_id:
-                _logger.debug(
+                get_logger(_logger_name).debug(
                     f"Send event for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X} to {sub.endpoint[0]}:{sub.endpoint[1]}"
                 )
                 self._someip_endpoint.sendto(
@@ -114,7 +113,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             )
 
         if header.service_id != self.service_id:
-            _logger.warn(
+            get_logger(_logger_name).warn(
                 f"Unknown service ID received from {addr}: ID 0x{header.service_id:04X}"
             )
             header_to_return.message_type = MessageType.RESPONSE.value
@@ -123,7 +122,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             return
 
         if header.method_id not in self.methods.keys():
-            _logger.warn(
+            get_logger(_logger_name).warn(
                 f"Unknown method ID received from {addr}: ID 0x{header.method_id:04X}"
             )
             header_to_return.message_type = MessageType.RESPONSE.value
@@ -143,19 +142,19 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             ].method_handler(payload_in)
 
             if not success:
-                _logger.debug(
+                get_logger(_logger_name).debug(
                     f"Return ERROR message type to {addr} for service and instance ID: 0x{self.service_id:04X} / 0x{self._instance_id:04X}"
                 )
                 header_to_return.message_type = MessageType.ERROR.value
             else:
-                _logger.debug(
+                get_logger(_logger_name).debug(
                     f"Return RESPONSE message type to {addr} for service and instance ID: 0x{self.service_id:04X} / 0x{self._instance_id:04X}"
                 )
                 header_to_return.message_type = MessageType.RESPONSE.value
 
             send_response()
         else:
-            _logger.warn(
+            get_logger(_logger_name).warn(
                 f"Unknown message type received from {addr}: Type 0x{header.message_type:04X}"
             )
 
@@ -185,7 +184,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             return
 
         if ipv4_endpoint_option.protocol != self._protocol:
-            _logger.warn(
+            get_logger(_logger_name).warn(
                 f"Subscribing a different protocol (TCP/UDP) than offered is not supported. Received subscribe for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X} "
                 "from {ipv4_endpoint_option.ipv4_address}/{ipv4_endpoint_option.port} with wrong protocol"
             )
@@ -196,7 +195,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             reboot_flag,
         ) = self._sd_sender.get_unicast_session_handler().update_session()
 
-        _logger.debug(
+        get_logger(_logger_name).debug(
             f"Send Subscribe ACK for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}, TTL: {sd_event_group.sd_entry.ttl}"
         )
         ack_entry = build_subscribe_eventgroup_ack_entry(
@@ -236,7 +235,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             reboot_flag,
         ) = self._sd_sender.get_multicast_session_handler().update_session()
 
-        _logger.debug(
+        get_logger(_logger_name).debug(
             f"Offer service for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}, TTL: {self._ttl}, version: {self._service.major_version}.{self._service.minor_version}, session ID: {session_id}"
         )
 
@@ -261,7 +260,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         self._offer_timer.start()
 
     async def stop_offer(self):
-        _logger.debug(
+        get_logger(_logger_name).debug(
             f"Stop offer for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}"
         )
 

@@ -22,8 +22,7 @@ from someipy._internal.service_discovery_abcs import (
 )
 from someipy._internal.logging import get_logger
 
-_logger = get_logger("service_discovery")
-
+_logger_name = "service_discovery"
 
 class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
     attached_observers: List[ServiceDiscoveryObserver]
@@ -77,7 +76,7 @@ class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
         someip_sd_header = SomeIpSdHeader.from_buffer(data)
 
         for offered_service in extract_offered_services(someip_sd_header):
-            _logger.debug(
+            get_logger(_logger_name).debug(
                 f"Received offer for instance 0x{offered_service.instance_id:04X}, service 0x{offered_service.service_id:04X}"
             )
             for o in self.attached_observers:
@@ -87,7 +86,7 @@ class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
             event_group_entry,
             ipv4_endpoint_option,
         ) in extract_subscribe_eventgroup_entries(someip_sd_header):
-            _logger.debug(
+            get_logger(_logger_name).debug(
                 f"Received subscribe for instance 0x{event_group_entry.sd_entry.instance_id:04X}, service 0x{event_group_entry.sd_entry.service_id:04X}, eventgroup 0x{event_group_entry.eventgroup_id:04X}"
             )
             for o in self.attached_observers:
@@ -96,7 +95,7 @@ class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
         for event_group_entry in extract_subscribe_ack_eventgroup_entries(
             someip_sd_header
         ):
-            _logger.debug(
+            get_logger(_logger_name).debug(
                 f"Received subscribe ACK for instance 0x{event_group_entry.sd_entry.instance_id:04X}, service 0x{event_group_entry.sd_entry.service_id:04X}, eventgroup 0x{event_group_entry.eventgroup_id:04X}"
             )
             # for o in self.attached_observers:

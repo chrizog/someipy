@@ -23,8 +23,7 @@ from someipy._internal.someip_endpoint import (
     SomeIpMessage,
 )
 
-_logger = get_logger("client_service_instance")
-
+_logger_name = "client_service_instance"
 
 class ExpectedAck:
     def __init__(self, eventgroup_id: int) -> None:
@@ -83,7 +82,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
 
     def subscribe_eventgroup(self, eventgroup_id: int):
         if eventgroup_id in self._eventgroups_to_subscribe:
-            _logger.debug(
+            get_logger(_logger_name).debug(
                 f"Eventgroup ID {eventgroup_id} is already in subscription list."
             )
         self._eventgroups_to_subscribe.add(eventgroup_id)
@@ -125,10 +124,10 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                     session_id=session_id,
                     reboot_flag=reboot_flag,
                     endpoint=self._endpoint,
-                    protocol=TransportLayerProtocol.UDP,
+                    protocol=self._protocol,
                 )
 
-                _logger.debug(
+                get_logger(_logger_name).debug(
                     f"Send subscribe for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}, "
                     f"eventgroup ID: {eventgroup_to_subscribe} TTL: {self._ttl}, version: "
                     f"session ID: {session_id}"
@@ -152,7 +151,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         for expected_ack in self._expected_acks:
             if expected_ack.eventgroup_id == event_group_entry.eventgroup_id:
                 ack_found = True
-                _logger.debug(
+                get_logger(_logger_name).debug(
                     f"Received expected subscribe ACK for instance 0x{event_group_entry.sd_entry.instance_id:04X}, service 0x{event_group_entry.sd_entry.service_id:04X}, eventgroup 0x{event_group_entry.eventgroup_id:04X}"
                 )
             else:
@@ -160,7 +159,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
 
         self._expected_acks = new_acks
         if not ack_found:
-            _logger.warn(
+            get_logger(_logger_name).warn(
                 f"Received unexpected subscribe ACK for instance 0x{event_group_entry.sd_entry.instance_id:04X}, service 0x{event_group_entry.sd_entry.service_id:04X}, eventgroup 0x{event_group_entry.eventgroup_id:04X}"
             )
 
@@ -196,6 +195,7 @@ async def construct_client_service_instance(
         return client_instance
 
     elif protocol == TransportLayerProtocol.TCP:
+        
         tcp_client_manager = TcpClientManager()
         loop = asyncio.get_running_loop()
         server = await loop.create_server(
