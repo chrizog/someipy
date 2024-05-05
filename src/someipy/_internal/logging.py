@@ -16,8 +16,11 @@ def get_logger(name: str) -> logging.Logger:
         datefmt="%Y-%m-%d,%H:%M:%S",
     )
 
-    console_handler = setup_console_handler(formatter, log_level)
-    logger.addHandler(console_handler)
+    # Check if the logger already has a console handler
+    if not any(isinstance(handler, logging.StreamHandler) for handler in logger.handlers):
+        console_handler = setup_console_handler(formatter, log_level)
+        logger.addHandler(console_handler)
+
     logger.setLevel(log_level)
     
     return logger
