@@ -17,7 +17,6 @@ SAMPLE_INSTANCE_ID = 0x5678
 SAMPLE_EVENTGROUP_ID = 0x0321
 SAMPLE_EVENT_ID = 0x0123
 
-
 def temperature_callback(someip_message: SomeIpMessage) -> None:
     """
     Callback function that is called when a temperature message is received.
@@ -34,8 +33,6 @@ def temperature_callback(someip_message: SomeIpMessage) -> None:
         print(temperature_msg)
     except Exception as e:
         print(f"Error in deserialization: {e}")
-
-
 
 async def main():
     # It's possible to configure the logging level of the someipy library, e.g. logging.INFO, logging.DEBUG, logging.WARN, ..
@@ -71,7 +68,7 @@ async def main():
         endpoint=(ipaddress.IPv4Address(INTERFACE_IP), 3002),
         ttl=5,
         sd_sender=service_discovery,
-        protocol=TransportLayerProtocol.UDP
+        protocol=TransportLayerProtocol.TCP
     )
 
     # It's possible to optionally register a callback function which will be called when an event from the
