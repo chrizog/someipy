@@ -1,12 +1,22 @@
-from someipy.serialization import *
+from dataclasses import dataclass
+from someipy.serialization import (
+    SomeIpPayload,
+    SomeIpFixedSizeArray,
+    Uint8,
+    Uint64,
+    
+    Float32,
+)
 
-# With someipy it's possible to either send and receive payloads unserialized simply as bytes-objects
-# You can also define the payloads structure directly as Python classes and serialize your Python object
+# With someipy it's possible to either send and receive payloads unserialized simply as bytes-objects. This is useful
+# when you don't care about the content, e.g. reading binary data and simply sending it.
+# However, you can also define the SOME/IP payload structure directly as Python classes and serialize your Python object
 # to a bytes-payload which can be sent. You can also deserialize a received bytes-object into your defined
 # Python object structure.
 
-# In this example we'll define a "temperature message" that consists of another SOME/IP struct and of a fixed size
+# In this example we define a "temperature message" that consists of another SOME/IP struct and of a fixed size
 # SOME/IP array
+
 
 @dataclass
 class Version(SomeIpPayload):
@@ -26,8 +36,8 @@ class Version(SomeIpPayload):
 @dataclass
 class TemparatureMsg(SomeIpPayload):
     # Always define payloads with the @dataclass decorator. This leads to the __eq__ being
-    # generated which makes it easy to compare the content of two messages
-    # For defining a payload struct just derive from the SomeIpPayload class. This will ensure
+    # generated which makes it easy to compare the content of two messages.
+    # For defining a payload struct simply derive from the SomeIpPayload class. This will ensure
     # the Python object can be serialized and deserialized and supports e.g. len() calls which
     # will return the length of the payload in bytes
 
@@ -47,9 +57,8 @@ class TemparatureMsg(SomeIpPayload):
 
 # Simple example how to instantiate a payload, change values, serialize and deserialize
 if __name__ == "__main__":
-
     tmp_msg = TemparatureMsg()
-    
+
     tmp_msg.version.major = Uint8(2)
     tmp_msg.version.minor = Uint8(0)
     # Reminder: Do NOT use "tmp_msg.version.major = 2". Always use the provided classes by someipy like Uint8,
@@ -69,8 +78,8 @@ if __name__ == "__main__":
     output = tmp_msg.serialize()
     print(output.hex())
 
-    # Create a new TemperatureMsg from the serialized bytes 
+    # Create a new TemperatureMsg from the serialized bytes
     tmp_msg_again = TemparatureMsg().deserialize(output)
     print(tmp_msg_again)
 
-    assert(tmp_msg_again == tmp_msg)
+    assert tmp_msg_again == tmp_msg

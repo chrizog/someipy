@@ -8,6 +8,7 @@ from someipy.logging import set_someipy_log_level
 from someipy.serialization import Uint8, Uint64, Float32
 from temperature_msg import TemparatureMsg
 
+
 SD_MULTICAST_GROUP = "224.224.224.245"
 SD_PORT = 30490
 INTERFACE_IP = "127.0.0.1"
