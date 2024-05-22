@@ -77,6 +77,22 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         self._offer_timer = None
 
     def send_event(self, event_group_id: int, event_id: int, payload: bytes) -> None:
+        """
+        Sends an event to subscribers with the given event group ID, event ID, and payload.
+
+        Args:
+            event_group_id (int): The ID of the event group.
+            event_id (int): The ID of the event.
+            payload (bytes): The payload of the event. Can be manually crafter or serialized using someipy serialization.
+
+        Returns:
+            None: This function does not return anything.
+
+        Note:
+            - The client id and session id are set to 0x00 and 0x01 respectively.
+            - The protocol version and interface version are set to 1.
+        """
+
         self._subscribers.update()
 
         length = 8 + len(payload)
@@ -93,6 +109,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         )
 
         for sub in self._subscribers.subscribers:
+            # Check if the subscriber wants to receive the event group id
             if sub.eventgroup_id == event_group_id:
                 get_logger(_logger_name).debug(
                     f"Send event for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X} to {sub.endpoint[0]}:{sub.endpoint[1]}"
@@ -103,11 +120,29 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
                 )
 
     def someip_message_received(self, data: bytes, addr: Tuple[str, int]) -> None:
+        """
+        Handle a received Some/IP message, typically when a client uses an offered service.
+
+        Args:
+            data (bytes): The received data.
+            addr (Tuple[str, int]): The address of the sender consisting of IP address and source port.
+
+        Returns:
+            None: This function does not return anything.
+
+        Raises:
+            None: This function does not raise any exceptions.
+
+        Note:
+            - The protocol and interface version are not checked yet.
+            - If the message type in the received header is not a request, a warning is logged.
+        """
         header = SomeIpHeader.from_buffer(data)
         payload_to_return = bytes()
         header_to_return = header
 
         def send_response():
+            """Helper function to send out the buffer"""
             self.unicast_transport.sendto(
                 header_to_return.to_buffer() + payload_to_return, addr
             )
@@ -159,10 +194,27 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             )
 
     def find_service_update(self):
+        """
+        Handle an SD find service entry. Not implemented yet.
+
+        Args:
+            None
+        Returns:
+            None
+        """
         # TODO: implement SD behaviour and send back offer
         pass
 
     def offer_service_update(self, _: SdService):
+        """
+        React on an SD offer entry. In a server instance no reaction is needed.
+
+        Parameters:
+            _ (SdService): The service update that was offered.
+
+        Returns:
+            None
+        """
         # No reaction in a server instance needed
         pass
 
@@ -171,11 +223,24 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         sd_event_group: SdEventGroupEntry,
         ipv4_endpoint_option: SdIPV4EndpointOption,
     ) -> None:
+        """
+        React on an SD subscribe eventgroup entry.
+
+        Parameters:
+            sd_event_group (SdEventGroupEntry): The subscribe eventgroup entry.
+            ipv4_endpoint_option (SdIPV4EndpointOption): The IPv4 endpoint option.
+
+        Returns:
+            None
+
+        """
+        
+        # From SD specification:
         # [PRS_SOMEIPSD_00829] When receiving a SubscribeEventgroupAck or Sub-
         # scribeEventgroupNack the Service ID, Instance ID, Eventgroup ID, and Major Ver-
         # sion shall match exactly to the corresponding SubscribeEventgroup Entry to identify
         # an Eventgroup of a Service Instance.
-        # TODO: enable major version check
+        # TODO: Enable major version check
         if sd_event_group.sd_entry.service_id != self._service.id:
             return
         if sd_event_group.sd_entry.instance_id != self._instance_id:
@@ -226,10 +291,28 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         )
 
     def subscribe_ack_eventgroup_update(self, _: SdEventGroupEntry) -> None:
+        """
+        React on an SD subscribe ACK event group entry. Shall not be received in a server instance. No reaction is needed in a server service instance.
+
+        Args:
+            _ (SdEventGroupEntry): The subscription ACK event group entry.
+
+        Returns:
+            None: This function does not return anything.
+        """
         # Not needed for server instance
         pass
 
     def offer_timer_callback(self):
+        """
+        Callback function for the periodic offer timer.
+
+        Parameters:
+            None
+
+        Returns:
+            None
+        """
         (
             session_id,
             reboot_flag,
@@ -254,12 +337,36 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         self._sd_sender.send_multicast(sd_header.to_buffer())
 
     def start_offer(self):
-        self._offer_timer = SimplePeriodicTimer(
-            self._cyclic_offer_delay_ms / 1000.0, self.offer_timer_callback
-        )
-        self._offer_timer.start()
+        """
+        Starts sending periodic service discovery offer entries for the instance.
+
+        This method creates a new `SimplePeriodicTimer` instance with the specified delay in seconds and assigns it to the `_offer_timer` attribute. The timer is then started by calling its `start` method.
+
+        Parameters:
+            None
+
+        Returns:
+            None
+        """
+        if self._offer_timer is None:
+            self._offer_timer = SimplePeriodicTimer(
+                self._cyclic_offer_delay_ms / 1000.0, self.offer_timer_callback
+            )
+            self._offer_timer.start()
 
     async def stop_offer(self):
+        """
+        Stop the offer for the service instance.  Stops the periodic send offer timer and sends out an SD message with a stop offer entry.
+
+        Parameters:
+            None
+
+        Returns:
+            None
+
+        TODO:
+            - Send out a stop offer SD message before stopping the timer.
+        """
         get_logger(_logger_name).debug(
             f"Stop offer for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}"
         )
@@ -274,11 +381,29 @@ async def construct_server_service_instance(
     service: Service,
     instance_id: int,
     endpoint: EndpointType,
-    ttl: int = 0,
-    sd_sender=None,
+    ttl,
+    sd_sender: ServiceDiscoverySender,
     cyclic_offer_delay_ms=2000,
     protocol=TransportLayerProtocol.UDP,
 ) -> ServerServiceInstance:
+    """
+    Asynchronously constructs a ServerServiceInstance. Based on the given transport protocol, proper endpoints are setup before constructing the actual ServerServiceInstance.
+
+    Args:
+        service (Service): The service associated with the instance.
+        instance_id (int): The ID of the instance.
+        endpoint (EndpointType): The endpoint for the instance containing IP address and port.
+        ttl (int, optional): The time-to-live for the instance used for service discovery offer entries. A value of 0 means that offer entries are valid for infinite time.
+        sd_sender (Any, optional): The service discovery sender.
+        cyclic_offer_delay_ms (int, optional): The delay in milliseconds for cyclic offers. Defaults to 2000.
+        protocol (TransportLayerProtocol, optional): The transport layer protocol for the instance. Defaults to TransportLayerProtocol.UDP.
+
+    Returns:
+        ServerServiceInstance: The constructed ServerServiceInstance.
+
+    Raises:
+        None
+    """
     if protocol == TransportLayerProtocol.UDP:
         loop = asyncio.get_running_loop()
         rcv_socket = create_udp_socket(str(endpoint[0]), endpoint[1])

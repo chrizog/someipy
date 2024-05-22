@@ -73,6 +73,16 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         self._tcp_task = None
 
     def register_callback(self, callback: Callable[[SomeIpMessage], None]) -> None:
+        """
+        Register a callback function to be called when a SOME/IP event is received.
+
+        Args:
+            callback (Callable[[SomeIpMessage], None]): The callback function to be registered.
+                This function should take a SomeIpMessage object as its only argument and return None.
+
+        Returns:
+            None
+        """
         self._callback = callback
 
     def someip_message_received(
@@ -88,6 +98,21 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                 self._callback(someip_message)
 
     def subscribe_eventgroup(self, eventgroup_id: int):
+        """
+        Adds an event group to the list of event groups to subscribe to.
+
+        Args:
+            eventgroup_id (int): The ID of the event group to subscribe to.
+
+        Returns:
+            None
+
+        Raises:
+            None
+
+        Notes:
+            - If the event group ID is already in the subscription list, a debug log message is printed.
+        """
         if eventgroup_id in self._eventgroups_to_subscribe:
             get_logger(_logger_name).debug(
                 f"Eventgroup ID {eventgroup_id} is already in subscription list."
@@ -95,6 +120,18 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         self._eventgroups_to_subscribe.add(eventgroup_id)
 
     def stop_subscribe_eventgroup(self, eventgroup_id: int):
+        """
+        Stops subscribing to an event group. Not implemented yet.
+
+        Args:
+            eventgroup_id (int): The ID of the event group to stop subscribing to.
+
+        Raises:
+            NotImplementedError: This method is not yet implemented.
+
+        Notes:
+            - This method is currently not implemented and raises a `NotImplementedError`.
+        """
         # TODO: Implement StopSubscribe
         raise NotImplementedError
 
@@ -167,8 +204,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
 
                 expected_bytes = 8 # 2x 32-bit for header
                 header_data = bytes()
-                data: bytes = bytes()
-                count = 0                
+                data: bytes = bytes()              
                 get_logger(_logger_name).debug(f"Start TCP read on port {src_port}")
                 
                 while self._tcp_connection.is_open():                    
@@ -178,10 +214,6 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                                 new_data = await asyncio.wait_for(self._tcp_connection.reader.read(8), 3.0)
                                 data += new_data
                             service_id, method_id, length = struct.unpack(">HHI", data[0:8])
-
-                            count += 1
-                            # print(f"{count} Received {len(data)} bytes: Service ID: 0x{service_id:02x} Method ID: 0x{method_id:02x} Length: {length}")
-
                             header_data = data[0:8]
 
                             # The length bytes also covers 8 bytes header data without payload
@@ -194,19 +226,12 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                                 new_data = await asyncio.wait_for(self._tcp_connection.reader.read(expected_bytes), 3.0)
                                 data += new_data
 
-                            # print(f"Received {len(data)} bytes from expected {expected_bytes}")
-
                             header_data = header_data + data[0:8]
                             payload_data = data[8:]
 
                             message_data = header_data + payload_data
-                            # hex_representation = ' '.join(f'0x{byte:02x}' for byte in message_data)
-                            # print(hex_representation)
                             someip_header = SomeIpHeader.from_buffer(buf=message_data)
-                            # print(str(someip_header))
                             payload_data = get_payload_from_someip_message(someip_header, message_data)
-                            # hex_representation = ' '.join(f'0x{byte:02x}' for byte in payload_data)
-                            # print(hex_representation)
 
                             if self._callback is not None:
                                 self._callback(SomeIpMessage(someip_header, payload_data))
@@ -225,7 +250,6 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
             except Exception as e:
                 get_logger(_logger_name).error(f"Exception in setup_tcp_connection: {e}")
             finally:
-                # 3. If the connection is closed, try to reconnect at beginning of loop (1)
                 await self._tcp_connection.close()
             
             # Sleep for a while before reconnect
@@ -265,6 +289,23 @@ async def construct_client_service_instance(
     sd_sender=None,
     protocol=TransportLayerProtocol.UDP,
 ) -> ClientServiceInstance:
+    """
+    Asynchronously constructs a ClientServerInstance. Based on the given transport protocol, proper endpoints are setup before constructing the actual ServerServiceInstance.
+
+    Args:
+        service (Service): The service associated with the instance.
+        instance_id (int): The ID of the instance.
+        endpoint (EndpointType): The endpoint of the client instance containing IP address and port.
+        ttl (int, optional): The time-to-live for the instance used for service discovery subscribe entries. A value of 0 means that subscriptions are valid for infinite time.
+        sd_sender (Any, optional): The service discovery sender.
+        protocol (TransportLayerProtocol, optional): The transport layer protocol for the instance. Defaults to TransportLayerProtocol.UDP.
+
+    Returns:
+        ClientServerInstance: The constructed ClientServerInstance.
+
+    Raises:
+        None
+    """
     if protocol == TransportLayerProtocol.UDP:
         loop = asyncio.get_running_loop()
         rcv_socket = create_udp_socket(str(endpoint[0]), endpoint[1])
