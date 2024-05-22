@@ -1,7 +1,10 @@
 cmake_minimum_required (VERSION 3.13)
 
 project(someipy_test_apps)
+
+set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
+
 
 find_package(vsomeip3 CONFIG REQUIRED)
 
@@ -24,3 +27,4 @@ endfunction()
 create_test_target("send_events")
 
 create_test_target("receive_events_udp")
+create_test_target("receive_events_tcp")

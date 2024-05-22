@@ -92,7 +92,7 @@ class TcpClientProtocol(asyncio.Protocol, TcpClientProtocolInterface):
 
     def connection_made(self, transport: asyncio.BaseTransport):
         peername: Tuple = transport.get_extra_info('peername')
-        print('Connection from {}'.format(peername))
+        # print('Connection from {}'.format(peername))
         self._transport = transport
         self._ip_addr_client = peername[0]
         self._port_client = peername[1]
@@ -100,7 +100,7 @@ class TcpClientProtocol(asyncio.Protocol, TcpClientProtocolInterface):
         self._client_manager.register_client(self)
 
     def data_received(self, data: bytes):
-        print('Data received {}: {}'.format(self.ip_addr, data))
+        # print('Data received {}: {}'.format(self.ip_addr, data))
 
         # Push data to processor
         result = self._data_processor.process_data(data)

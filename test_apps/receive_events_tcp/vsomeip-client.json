@@ -2,7 +2,7 @@
     "unicast" : "127.0.0.2",
     "logging" :
     {
-        "level" : "verbose",
+        "level" : "debug",
         "console" : "true",
         "file" : { "enable" : "false", "path" : "./vsomeip.log" },
         "dlt" : "false"
@@ -19,13 +19,13 @@
         {
             "service" : "0x1234",
             "instance" : "0x5678",
-            "unreliable" : "30509",
+            "reliable" : { "port" : "30509", "magic-cookies" : "false" },
             "events" : [
                 {
                     "event" : "0x0123",
                     "is_field" : "false",
-                    "is_reliable" : "false",
-                    "update-cycle" : "0"
+                    "is_reliable" : "true",
+                    "update-cycle" : "1"
                 }
             ],
             "eventgroups": [

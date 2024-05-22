@@ -1,4 +1,6 @@
 import asyncio
+from enum import Enum
+import struct
 from typing import Tuple, Callable, Set, List
 
 from someipy import Service
@@ -7,21 +9,21 @@ from someipy._internal.someip_sd_header import (
     TransportLayerProtocol,
     SdEventGroupEntry,
 )
+from someipy._internal.someip_header import SomeIpHeader, get_payload_from_someip_message
 from someipy._internal.someip_sd_builder import build_subscribe_eventgroup_entry
 from someipy._internal.service_discovery_abcs import (
     ServiceDiscoveryObserver,
     ServiceDiscoverySender,
 )
-from someipy._internal.tcp_client_manager import TcpClientManager, TcpClientProtocol
 from someipy._internal.utils import create_udp_socket, EndpointType
 from someipy._internal.logging import get_logger
 from someipy._internal.message_types import MessageType
 from someipy._internal.someip_endpoint import (
     SomeipEndpoint,
-    TCPSomeipEndpoint,
     UDPSomeipEndpoint,
     SomeIpMessage,
 )
+from someipy._internal.tcp_connection import TcpConnection
 
 _logger_name = "client_service_instance"
 
@@ -64,6 +66,11 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         self._eventgroups_to_subscribe = set()
         self._expected_acks = []
         self._callback = None
+
+        self._tcp_connection: TcpConnection = None
+
+        self._tcp_connect_lock = asyncio.Lock()
+        self._tcp_task = None
 
     def register_callback(self, callback: Callable[[SomeIpMessage], None]) -> None:
         self._callback = callback
@@ -133,11 +140,97 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                     f"session ID: {session_id}"
                 )
 
+                if self._protocol == TransportLayerProtocol.TCP:
+                    if self._tcp_task is None:
+                        get_logger(_logger_name).debug(f"Create new TCP task for client of 0x{self._instance_id:04X}, 0x{self._service.id:04X}")
+                        self._tcp_task = asyncio.create_task(self.setup_tcp_connection(str(self._endpoint[0]), self._endpoint[1], str(offered_service.endpoint[0]), offered_service.endpoint[1]))
+
                 self._expected_acks.append(ExpectedAck(eventgroup_to_subscribe))
                 self._sd_sender.send_unicast(
                     buffer=subscribe_sd_header.to_buffer(),
                     dest_ip=offered_service.endpoint[0],
                 )
+
+    async def setup_tcp_connection(self, src_ip: str, src_port: int, dst_ip: str, dst_port: int):
+        # TODO: Check for stop condition
+        while True:
+            try:
+                get_logger(_logger_name).debug(f"Try to open TCP connection to ({dst_ip}, {dst_port})")
+                self._tcp_connection = TcpConnection(dst_ip, dst_port)
+                await self._tcp_connection.connect(src_ip, src_port)
+                
+                class State(Enum):
+                    HEADER = 1
+                    PAYLOAD = 2
+                    PENDING = 3
+                state = State.HEADER
+
+                expected_bytes = 8 # 2x 32-bit for header
+                header_data = bytes()
+                data: bytes = bytes()
+                count = 0                
+                get_logger(_logger_name).debug(f"Start TCP read on port {src_port}")
+                
+                while self._tcp_connection.is_open():                    
+                    try:
+                        if state == State.HEADER:
+                            while len(data) < expected_bytes:
+                                new_data = await asyncio.wait_for(self._tcp_connection.reader.read(8), 3.0)
+                                data += new_data
+                            service_id, method_id, length = struct.unpack(">HHI", data[0:8])
+
+                            count += 1
+                            # print(f"{count} Received {len(data)} bytes: Service ID: 0x{service_id:02x} Method ID: 0x{method_id:02x} Length: {length}")
+
+                            header_data = data[0:8]
+
+                            # The length bytes also covers 8 bytes header data without payload
+                            expected_bytes = length
+                            state = State.PAYLOAD
+                            
+                        elif state == State.PAYLOAD:
+                            data = bytes()
+                            while len(data) < expected_bytes:
+                                new_data = await asyncio.wait_for(self._tcp_connection.reader.read(expected_bytes), 3.0)
+                                data += new_data
+
+                            # print(f"Received {len(data)} bytes from expected {expected_bytes}")
+
+                            header_data = header_data + data[0:8]
+                            payload_data = data[8:]
+
+                            message_data = header_data + payload_data
+                            # hex_representation = ' '.join(f'0x{byte:02x}' for byte in message_data)
+                            # print(hex_representation)
+                            someip_header = SomeIpHeader.from_buffer(buf=message_data)
+                            # print(str(someip_header))
+                            payload_data = get_payload_from_someip_message(someip_header, message_data)
+                            # hex_representation = ' '.join(f'0x{byte:02x}' for byte in payload_data)
+                            # print(hex_representation)
+
+                            if self._callback is not None:
+                                self._callback(SomeIpMessage(someip_header, payload_data))
+
+                            if len(data) == expected_bytes:
+                                data = bytes()
+                            else:
+                                data = data[expected_bytes:]
+                            state = State.HEADER
+                            expected_bytes = 8
+
+                    except TimeoutError:
+                        get_logger(_logger_name).debug(f"Timeout reading from TCP connection ({src_ip}, {src_port})")
+                    
+
+            except Exception as e:
+                get_logger(_logger_name).error(f"Exception in setup_tcp_connection: {e}")
+            finally:
+                # 3. If the connection is closed, try to reconnect at beginning of loop (1)
+                await self._tcp_connection.close()
+            
+            # Sleep for a while before reconnect
+            await asyncio.sleep(1)
+
 
     def subscribe_eventgroup_update(self, _, __) -> None:
         # Not needed for client instance
@@ -196,22 +289,12 @@ async def construct_client_service_instance(
 
     elif protocol == TransportLayerProtocol.TCP:
         
-        tcp_client_manager = TcpClientManager()
-        loop = asyncio.get_running_loop()
-        server = await loop.create_server(
-            lambda: TcpClientProtocol(client_manager=tcp_client_manager),
-            str(endpoint[0]),
-            endpoint[1],
-        )
-
-        tcp_someip_endpoint = TCPSomeipEndpoint(server, tcp_client_manager)
-
         server_instance = ClientServiceInstance(
             service,
             instance_id,
             endpoint,
             TransportLayerProtocol.TCP,
-            tcp_someip_endpoint,
+            None,
             ttl,
             sd_sender,
         )
