@@ -1,9 +1,10 @@
 # someipy - A Python Library for the SOME/IP Protocol
 
-## Feature Requests, Bugs, Contact
+## Get in Contact :postbox:
 
-For feature requests or bug reports, send a message on GitHub or write an email to:
-> :email: [someipy.package@gmail.com](mailto:someipy.package@gmail.com)
+If you want to connect, have a feature request, bug report or need support, send me an email or connect on LinkedIn:
+> :email: [someipy.package@gmail.com](mailto:someipy.package@gmail.com)  
+:electric_plug: [LinkedIn](https://www.linkedin.com/in/ch-herzog/)
 
 ## What is someipy?
 

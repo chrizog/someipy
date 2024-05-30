@@ -74,7 +74,10 @@ class SomeIpHeader:
 
     def to_buffer(self) -> bytes:
         return struct.pack(">HHIHHBBBB", self.service_id, self.method_id, self.length, self.client_id, self.session_id, self.protocol_version, self.interface_version, self.message_type, self.return_code)
-    
+
+    def __str__(self) -> str:
+        return f"Service ID: 0x{self.service_id:04X}, Method ID: 0x{self.method_id:04X}, Length: {self.length}, Client ID: 0x{self.client_id:04X}, Session ID: 0x{self.session_id:04X}, Protocol Version: 0x{self.protocol_version:02X}, Interface Version: 0x{self.interface_version:02X}, Message Type: 0x{self.message_type:02X}, Return Code: 0x{self.return_code:02X}"
+
 def get_payload_from_someip_message(someip_header: SomeIpHeader, payload: bytes) -> bytes:
     length = someip_header.length
     payload_length = length - 8 # 8 bytes for request ID, protocol version, etc.

@@ -28,3 +28,6 @@ create_test_target("send_events")
 
 create_test_target("receive_events_udp")
 create_test_target("receive_events_tcp")
+
+create_test_target("offer_method_udp")
+create_test_target("offer_method_tcp")
