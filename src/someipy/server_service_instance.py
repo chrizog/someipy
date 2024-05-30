@@ -1,6 +1,7 @@
 import asyncio
 from typing import Tuple
 
+from someipy._internal.someip_message import SomeIpMessage
 from someipy.service import Service
 
 from someipy._internal.tcp_client_manager import TcpClientManager, TcpClientProtocol
@@ -11,8 +12,7 @@ from someipy._internal.someip_sd_builder import (
     build_subscribe_eventgroup_ack_sd_header,
 )
 from someipy._internal.someip_header import (
-    SomeIpHeader,
-    get_payload_from_someip_message,
+    SomeIpHeader
 )
 from someipy._internal.someip_sd_header import (
     SdService,
@@ -119,12 +119,12 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
                     endpoint_to_str_int_tuple(sub.endpoint),
                 )
 
-    def someip_message_received(self, data: bytes, addr: Tuple[str, int]) -> None:
+    def someip_message_received(self, message: SomeIpMessage, addr: Tuple[str, int]) -> None:
         """
         Handle a received Some/IP message, typically when a client uses an offered service.
 
         Args:
-            data (bytes): The received data.
+            message (SomeIpMessage): The received someip message.
             addr (Tuple[str, int]): The address of the sender consisting of IP address and source port.
 
         Returns:
@@ -137,17 +137,20 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             - The protocol and interface version are not checked yet.
             - If the message type in the received header is not a request, a warning is logged.
         """
-        header = SomeIpHeader.from_buffer(data)
+        header = message.header
         payload_to_return = bytes()
         header_to_return = header
 
         def send_response():
             """Helper function to send out the buffer"""
-            self.unicast_transport.sendto(
-                header_to_return.to_buffer() + payload_to_return, addr
-            )
 
-        if header.service_id != self.service_id:
+            # Update length in header to the correct length
+            header_to_return.length = 8 + len(payload_to_return)
+            self._someip_endpoint.sendto(
+                    header_to_return.to_buffer() + payload_to_return, addr
+                )
+
+        if header.service_id != self._service.id:
             get_logger(_logger_name).warn(
                 f"Unknown service ID received from {addr}: ID 0x{header.service_id:04X}"
             )
@@ -156,7 +159,8 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             send_response()
             return
 
-        if header.method_id not in self.methods.keys():
+
+        if header.method_id not in self._service.methods.keys():
             get_logger(_logger_name).warn(
                 f"Unknown method ID received from {addr}: ID 0x{header.method_id:04X}"
             )
@@ -171,23 +175,16 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             header.message_type == MessageType.REQUEST.value
             and header.return_code == 0x00
         ):
-            payload_in = get_payload_from_someip_message(header, data)
-            (success, payload_to_return) = self.methods[
-                header.method_id
-            ].method_handler(payload_in)
-
+            method_handler = self._service.methods[header.method_id].method_handler
+            success, payload_result = method_handler(message.payload, addr)
             if not success:
-                get_logger(_logger_name).debug(
-                    f"Return ERROR message type to {addr} for service and instance ID: 0x{self.service_id:04X} / 0x{self._instance_id:04X}"
-                )
                 header_to_return.message_type = MessageType.ERROR.value
             else:
-                get_logger(_logger_name).debug(
-                    f"Return RESPONSE message type to {addr} for service and instance ID: 0x{self.service_id:04X} / 0x{self._instance_id:04X}"
-                )
                 header_to_return.message_type = MessageType.RESPONSE.value
+                payload_to_return = payload_result
 
             send_response()
+            
         else:
             get_logger(_logger_name).warn(
                 f"Unknown message type received from {addr}: Type 0x{header.message_type:04X}"
@@ -422,6 +419,9 @@ async def construct_server_service_instance(
             sd_sender,
             cyclic_offer_delay_ms,
         )
+
+        udp_endpoint.set_someip_callback(server_instance.someip_message_received)
+
         return server_instance
 
     elif protocol == TransportLayerProtocol.TCP:
@@ -445,4 +445,7 @@ async def construct_server_service_instance(
             sd_sender,
             cyclic_offer_delay_ms,
         )
+
+        tcp_someip_endpoint.set_someip_callback(server_instance.someip_message_received)
+
         return server_instance

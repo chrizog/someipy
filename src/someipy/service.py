@@ -8,7 +8,7 @@ class Method:
     Class representing a SOME/IP method with a method id and a method handler.
     """
     id: int
-    method_handler: Callable[[bytes], Tuple[bool, bytes]]
+    method_handler: Callable[[bytes, Tuple[str, int]], Tuple[bool, bytes]]
 
     def __eq__(self, __value: object) -> bool:
         return self.method_id == __value.method_id
