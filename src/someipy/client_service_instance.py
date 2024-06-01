@@ -1,7 +1,7 @@
 import asyncio
 from enum import Enum
 import struct
-from typing import Tuple, Callable, Set, List
+from typing import Iterable, Tuple, Callable, Set, List
 
 from someipy import Service
 from someipy._internal.someip_sd_header import (
@@ -15,7 +15,7 @@ from someipy._internal.service_discovery_abcs import (
     ServiceDiscoveryObserver,
     ServiceDiscoverySender,
 )
-from someipy._internal.utils import create_udp_socket, EndpointType
+from someipy._internal.utils import create_udp_socket, EndpointType, endpoint_to_str_int_tuple
 from someipy._internal.logging import get_logger
 from someipy._internal.message_types import MessageType
 from someipy._internal.someip_endpoint import (
@@ -27,10 +27,25 @@ from someipy._internal.tcp_connection import TcpConnection
 
 _logger_name = "client_service_instance"
 
+class MethodResult(Enum):
+    SUCCESS = 0
+    TIMEOUT = 1
+    SERVICE_NOT_FOUND = 2
+    ERROR = 3
+
 class ExpectedAck:
     def __init__(self, eventgroup_id: int) -> None:
         self.eventgroup_id = eventgroup_id
 
+class FoundService:
+    service: SdService
+
+    def __init__(self, service: SdService) -> None:
+        self.service = service
+
+    def __eq__(self, __value: object) -> bool:
+        if isinstance(__value, FoundService):
+            return self.service == __value.service
 
 class ClientServiceInstance(ServiceDiscoveryObserver):
     _service: Service
@@ -44,6 +59,8 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
     _eventgroups_to_subscribe: Set[int]
     _expected_acks: List[ExpectedAck]
     _callback: Callable[[bytes], None]
+    _found_services: Iterable[FoundService]
+    _method_call_future: asyncio.Future
 
     def __init__(
         self,
@@ -72,6 +89,10 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         self._tcp_connect_lock = asyncio.Lock()
         self._tcp_task = None
 
+        self._found_services = []
+        self._method_call_future = None
+        
+
     def register_callback(self, callback: Callable[[SomeIpMessage], None]) -> None:
         """
         Register a callback function to be called when a SOME/IP event is received.
@@ -85,6 +106,43 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         """
         self._callback = callback
 
+    async def call_method(self, method_id: int, payload: bytes) -> Tuple[MethodResult, bytes]:
+        
+        has_service = False
+        for s in self._found_services:
+            if s.service.service_id == self._service.id and s.service.instance_id == self._instance_id:
+                has_service = True
+                break
+
+        if not has_service:
+            get_logger(_logger_name).warn(f"Do not execute method call. Service 0x{self._service.id:04X} with instance 0x{self._instance_id:04X} not found.")
+            return MethodResult.SERVICE_NOT_FOUND, b""
+        
+        header = SomeIpHeader(
+            service_id=self._service.id,
+            method_id=method_id,
+            client_id=0x00,
+            session_id=0x00,
+            protocol_version=0x01,
+            interface_version=0x00,
+            message_type=MessageType.REQUEST.value,
+            return_code=0x00,
+            length=len(payload) + 8,
+        )
+        someip_message = SomeIpMessage(header, payload)
+
+        self._method_call_future = asyncio.get_running_loop().create_future()
+        self._someip_endpoint.sendto(someip_message.serialize(), endpoint_to_str_int_tuple(self._found_services[0].service.endpoint))
+
+        try:
+            await asyncio.wait_for(self._method_call_future, 1.0)
+        except asyncio.TimeoutError:
+            get_logger(_logger_name).error(f"Waiting on response for method call 0x{method_id:04X} timed out.")
+            return MethodResult.TIMEOUT, b""
+        
+        return MethodResult.SUCCESS, self._method_call_future.result()
+
+
     def someip_message_received(
         self, someip_message: SomeIpMessage, addr: Tuple[str, int]
     ) -> None:
@@ -96,6 +154,18 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         ):
             if self._callback is not None:
                 self._callback(someip_message)
+        
+        if (someip_message.header.message_type == MessageType.RESPONSE.value
+            and someip_message.header.return_code == 0x00): # E_OK
+            if self._method_call_future is not None:
+                self._method_call_future.set_result(someip_message.payload)
+                return
+
+        if (someip_message.header.message_type == MessageType.ERROR.value
+            and someip_message.header.return_code == 0x01): # E_NOT_OK
+            if self._method_call_future is not None:
+                self._method_call_future.set_result(b"")
+                return
 
     def subscribe_eventgroup(self, eventgroup_id: int):
         """
@@ -140,8 +210,8 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         pass
 
     def offer_service_update(self, offered_service: SdService):
-        if len(self._eventgroups_to_subscribe) == 0:
-            return
+        #if len(self._eventgroups_to_subscribe) == 0:
+        #    return
 
         if self._service.id != offered_service.service_id:
             return
@@ -152,6 +222,11 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
             offered_service.service_id == self._service.id
             and offered_service.instance_id == self._instance_id
         ):
+            # TODO: Check does not work, fix
+            if FoundService(offered_service) not in self._found_services:
+                self._found_services.append(FoundService(offered_service))
+            
+            # Try to subscribe to requested event groups
             for eventgroup_to_subscribe in self._eventgroups_to_subscribe:
                 (
                     session_id,
