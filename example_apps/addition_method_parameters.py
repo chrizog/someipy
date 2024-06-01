@@ -15,9 +15,9 @@ class Addends(SomeIpPayload):
     addend1: Sint16
     addend2: Sint16
 
-    def __init__(self):
-        self.addend1 = Sint16()
-        self.addend2 = Sint16()
+    def __init__(self, addend1: int = 0, addend2: int = 0):
+        self.addend1 = Sint16(addend1)
+        self.addend2 = Sint16(addend2)
 
 @dataclass
 class Sum(SomeIpPayload):

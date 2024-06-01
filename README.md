@@ -48,8 +48,7 @@ The library is still under development. The current major limitations and deviat
 
 ### SOME/IP
 
-- Events (and field notifiers) are supported.
-- Methods are only supported on server side (offering methods). Calling methods (clients) is not supported yet.
+- Calling methos via TCP is not supported yet. Only UDP method calls are supported.
 - Only unicast services are supported.
 - SOME/IP-TP is not supported.
 - IPv6 endpoints are not supported.
