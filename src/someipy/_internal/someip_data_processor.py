@@ -16,10 +16,7 @@ class SomeipDataProcessor:
         self._expected_bytes = 0
 
     def process_data(self, new_data: bytes) -> bool:
-
         received_length = len(new_data)
-
-        print(" ".join(f"{byte:02X}" for byte in new_data))
 
         # UDP case
         if self._datagram_mode:

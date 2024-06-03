@@ -1,4 +1,5 @@
-from .someip_sd_header import *
+from typing import List, Tuple
+from .someip_sd_header import SomeIpSdHeader, SdService, SdEntryType, SdIPV4EndpointOption, SdEventGroupEntry
 
 
 def extract_offered_services(someip_sd_header: SomeIpSdHeader) -> List[SdService]:
