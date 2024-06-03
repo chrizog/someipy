@@ -146,7 +146,6 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
     def someip_message_received(
         self, someip_message: SomeIpMessage, addr: Tuple[str, int]
     ) -> None:
-        print(someip_message.header)
         if (
             someip_message.header.client_id == 0x00
             and someip_message.header.message_type == MessageType.NOTIFICATION.value

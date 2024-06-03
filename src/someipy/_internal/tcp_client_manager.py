@@ -57,11 +57,11 @@ class TcpClientManager(TcpClientManagerInterface):
         return f"{ip_addr}-{port}"
 
     def register_client(self, client: TcpClientProtocolInterface) -> None:
-        print(f"Register new client {client.ip_addr}, {client.port}")
+        #print(f"Register new client {client.ip_addr}, {client.port}")
         self._clients[self._build_key(client.ip_addr, client.port)] = client
 
     def unregister_client(self, client: TcpClientProtocolInterface) -> None:
-        print(f"Unregister client {client.ip_addr}, {client.port}")
+        #print(f"Unregister client {client.ip_addr}, {client.port}")
         if self._build_key(client.ip_addr, client.port) in self._clients.keys():
             del self._clients[self._build_key(client.ip_addr, client.port)]
 

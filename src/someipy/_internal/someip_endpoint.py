@@ -1,6 +1,6 @@
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Callable, Tuple, Any
+from typing import Callable, Tuple, Any, Union
 from someipy._internal.someip_message import SomeIpMessage
 from someipy._internal.tcp_client_manager import (
     TcpClientManagerInterface,
@@ -44,10 +44,10 @@ class UDPSomeipEndpoint(SomeipEndpoint, asyncio.DatagramProtocol):
     def connection_made(self, transport: asyncio.DatagramTransport) -> None:
         self._transport = transport
 
-    def connection_lost(self, exc: Exception | None) -> None:
+    def connection_lost(self, exc: Exception) -> None:
         pass
 
-    def datagram_received(self, data: bytes, addr: Tuple[str | Any | int]) -> None:
+    def datagram_received(self, data: bytes, addr: Tuple[Union[str, Any, int]]) -> None:
         result = self._processor.process_data(data)
         if result and self._callback is not None:
             self._callback(self._processor.someip_message, addr)

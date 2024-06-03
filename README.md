@@ -18,7 +18,7 @@ someipy is based on the specification version of R22-11:
 - [SOME/IP Protocol Specification](https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPProtocol.pdf)
 - [SOME/IP Service Discovery Protocol Specification](https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPServiceDiscoveryProtocol.pdf)
 
-The library is currently developed and tested under Ubuntu 22.04 and Python 3.12.
+The library is currently developed and tested under Ubuntu 22.04 and Python 3.8.
 
 ## Typical Use Cases
 
@@ -35,7 +35,7 @@ someipy excels in scenarios where a full-scale Autosar (Adaptive or Classic) int
 The package can be installed from [PyPi](https://pypi.org/project/someipy/).
 
 ```bash
-pip install someipy
+pip3 install someipy
 ```
 
 ## Example Applications
