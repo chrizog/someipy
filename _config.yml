@@ -31,8 +31,8 @@ github_username: chrizog
 
 # Build settings
 theme: just-the-docs
-plugins:
-  - jekyll-feed
+#plugins:
+#  - jekyll-feed
 
 # Exclude from processing.
 # The following items will not be processed, by default.
@@ -122,3 +122,6 @@ nav_sort: case_sensitive # Capital letters sorted before lowercase
 nav_external_links:
   - title: someipy on GitHub
     url: https://github.com/chrizog/someipy
+
+
+footer_content: "<!-- 100% privacy-first analytics --><script async defer src=\"https://scripts.simpleanalyticscdn.com/latest.js\"></script><noscript><img src=\"https://queue.simpleanalyticscdn.com/noscript.gif\" alt=\"\" referrerpolicy=\"no-referrer-when-downgrade\" /></noscript>"
