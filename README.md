@@ -6,6 +6,11 @@ If you want to connect, have a feature request, bug report or need support, send
 > :email: [someipy.package@gmail.com](mailto:someipy.package@gmail.com)  
 :electric_plug: [LinkedIn](https://www.linkedin.com/in/ch-herzog/)
 
+## Documentation :pencil2:
+
+:link: [https://chrizog.github.io/someipy/](https://chrizog.github.io/someipy/)
+
+
 ## What is someipy?
 
 someipy is a Python library implementing the SOME/IP protocol, including the SOME/IP SD (Service Discovery) in Python. It's perfectly suited for fast prototyping of applications that need to provide (server) or use (client) SOME/IP services from other ECUs.
@@ -48,7 +53,7 @@ The library is still under development. The current major limitations and deviat
 
 ### SOME/IP
 
-- Calling methos via TCP is not supported yet. Only UDP method calls are supported.
+- Calling methods via TCP is not supported yet. Only method calls via UDP are supported.
 - Only unicast services are supported.
 - SOME/IP-TP is not supported.
 - IPv6 endpoints are not supported.
