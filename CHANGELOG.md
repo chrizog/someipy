@@ -1,6 +1,7 @@
 ---
 title: CHANGELOG
 layout: default
+nav_order: 20
 ---
 
 # CHANGELOG
