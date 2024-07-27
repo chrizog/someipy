@@ -24,9 +24,9 @@ someipy is based on the specification version of R22-11:
 
 The library is developed and tested on Ubuntu 22.04 and using Python 3.8.
 
-# Get in Contact
+# For Inquiries
 
-If you want to connect, have a feature request, bug report or need support, send me an email or connect on LinkedIn:
+For any questions, feature requests, bug reports, or general support regarding someipy, please reach out to us using one of the following methods:
 > [someipy.package@gmail.com](mailto:someipy.package@gmail.com)  
 [LinkedIn](https://www.linkedin.com/in/ch-herzog/)
 
