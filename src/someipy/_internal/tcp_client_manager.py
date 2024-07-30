@@ -57,11 +57,9 @@ class TcpClientManager(TcpClientManagerInterface):
         return f"{ip_addr}-{port}"
 
     def register_client(self, client: TcpClientProtocolInterface) -> None:
-        #print(f"Register new client {client.ip_addr}, {client.port}")
         self._clients[self._build_key(client.ip_addr, client.port)] = client
 
     def unregister_client(self, client: TcpClientProtocolInterface) -> None:
-        #print(f"Unregister client {client.ip_addr}, {client.port}")
         if self._build_key(client.ip_addr, client.port) in self._clients.keys():
             del self._clients[self._build_key(client.ip_addr, client.port)]
 
@@ -81,6 +79,7 @@ class TcpClientManager(TcpClientManagerInterface):
     def register_callback(self, callback: Callable[[SomeIpMessage, Tuple[str, int]], None]) -> None:
         self._someip_callback = callback
 
+
 class TcpClientProtocol(asyncio.Protocol, TcpClientProtocolInterface):
 
     def __init__(self, client_manager: TcpClientManager):
@@ -92,7 +91,6 @@ class TcpClientProtocol(asyncio.Protocol, TcpClientProtocolInterface):
 
     def connection_made(self, transport: asyncio.BaseTransport):
         peername: Tuple = transport.get_extra_info('peername')
-        # print('Connection from {}'.format(peername))
         self._transport = transport
         self._ip_addr_client = peername[0]
         self._port_client = peername[1]
@@ -100,8 +98,6 @@ class TcpClientProtocol(asyncio.Protocol, TcpClientProtocolInterface):
         self._client_manager.register_client(self)
 
     def data_received(self, data: bytes):
-        # print('Data received {}: {}'.format(self.ip_addr, data))
-
         # Push data to processor
         result = self._data_processor.process_data(data)
         if result and self._client_manager is not None:

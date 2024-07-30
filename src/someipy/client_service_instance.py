@@ -9,7 +9,7 @@ from someipy._internal.someip_sd_header import (
     TransportLayerProtocol,
     SdEventGroupEntry,
 )
-from someipy._internal.someip_header import SomeIpHeader, get_payload_from_someip_message
+from someipy._internal.someip_header import SomeIpHeader, get_payload_from_message_buffer
 from someipy._internal.someip_sd_builder import build_subscribe_eventgroup_entry
 from someipy._internal.service_discovery_abcs import (
     ServiceDiscoveryObserver,
@@ -221,7 +221,6 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
             offered_service.service_id == self._service.id
             and offered_service.instance_id == self._instance_id
         ):
-            # TODO: Check does not work, fix
             if FoundService(offered_service) not in self._found_services:
                 self._found_services.append(FoundService(offered_service))
             
@@ -305,7 +304,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
 
                             message_data = header_data + payload_data
                             someip_header = SomeIpHeader.from_buffer(buf=message_data)
-                            payload_data = get_payload_from_someip_message(someip_header, message_data)
+                            payload_data = get_payload_from_message_buffer(someip_header, message_data)
 
                             if self._callback is not None:
                                 self._callback(SomeIpMessage(someip_header, payload_data))

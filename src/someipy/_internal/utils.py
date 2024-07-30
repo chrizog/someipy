@@ -2,6 +2,7 @@ import asyncio
 import ipaddress
 import socket
 import struct
+import platform
 
 from typing import Tuple, Union, Any
 
@@ -31,7 +32,7 @@ def create_udp_socket(ip_address: str, port: int) -> socket.socket:
     return sock
 
 
-def create_rcv_multicast_socket(ip_address: str, port: int) -> socket.socket:
+def create_rcv_multicast_socket(ip_address: str, port: int, interface_address: str = None) -> socket.socket:
     """
     Create a datagram protocol based socket for multicast and bind the socket to the passed multicast address.
 
@@ -50,11 +51,25 @@ def create_rcv_multicast_socket(ip_address: str, port: int) -> socket.socket:
         The newly created socket
 
     """
-    sock = create_udp_socket(ip_address, port)
-    mreq = struct.pack("4sl", socket.inet_aton(ip_address), socket.INADDR_ANY)
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-    return sock
-
+    os_type = platform.system()
+    if os_type == "Windows":
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        group = socket.inet_aton(ip_address)
+        mreq = struct.pack('4sL', group, socket.INADDR_ANY)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        sock.bind(("", port))
+        return sock
+    else:
+        if interface_address is None:
+            raise ValueError("The interface address must be specified for non-Windows systems.")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((ip_address, port))
+        # Specify the interface for multicast group membership instead of INADDR_ANY
+        mreq = struct.pack("4s4s", socket.inet_aton(ip_address), socket.inet_aton(interface_address))
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        return sock
 
 EndpointType = Tuple[ipaddress.IPv4Address, int]
 

@@ -241,7 +241,7 @@ async def construct_service_discovery(
     loop = asyncio.get_running_loop()
     sd.mcast_transport, _ = await loop.create_datagram_endpoint(
         lambda: DatagramAdapter(target=sd),
-        sock=create_rcv_multicast_socket(multicast_group_ip, sd_port),
+        sock=create_rcv_multicast_socket(multicast_group_ip, sd_port, unicast_ip),
     )
 
     sd.unicast_transport, _ = await loop.create_datagram_endpoint(

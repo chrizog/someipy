@@ -1,3 +1,7 @@
+# Test Applications
+
+The test applications can be used for contributions to someipy. The test applications use the vsomeip library in order to stimulate the someipy applications.
+
 ## Build Test Applications using CMake
 
 ```bash
@@ -7,7 +11,7 @@ rm -rf build install && mkdir -p build && cd build && cmake .. && make && make i
 ## Setup Python Pip Package from Source
 
 ```bash
-python3.12 -m pip install -e .
+python3 -m pip install -e .
 ```
 
 ## Test Procedure
@@ -26,7 +30,7 @@ Open two terminals (one for Python someipy example app, one for test app).
 Start apps:
 
 ```bash
-python3.12 send_events_udp.py
+python3send_events_udp.py
 bash ./install/send_events/start_app.sh
 ```
 
@@ -42,14 +46,14 @@ Expected in test app:
 - SD Offer is sent with 0.5Hz
 
 
-### 1. send_events_tcp
+### 2. send_events_tcp
 
 Open two terminals (one for Python someipy example app, one for test app).
 
 Start apps:
 
 ```bash
-python3.12 send_events_tcp.py
+python3send_events_tcp.py
 bash ./install/send_events/start_app.sh
 ```
 
@@ -65,14 +69,14 @@ Expected in test app:
 - Event ID: 0x0123
 - SD Offer is sent with 0.5Hz
 
-### 1. receive_events_udp
+### 3. receive_events_udp
 
 Open two terminals (one for Python someipy example app, one for test app).
 
 Start apps:
 
 ```bash
-python3.12 receive_events_udp.py
+python3receive_events_udp.py
 bash install/receive_events_udp/start_app.sh
 ```
 
