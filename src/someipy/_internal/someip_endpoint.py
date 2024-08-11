@@ -11,6 +11,12 @@ from someipy._internal.someip_data_processor import SomeipDataProcessor
 
 
 class SomeipEndpoint(ABC):
+    """
+    A class representing an endpoint (UDP or TCP) which fires a callback when a SomeIpMessage is received.
+    It can also send messages to a specific endpoint or broadcast to all connected endpoints (for UDP multicast or to all connected
+    TCP clients).
+    """
+
     @abstractmethod
     def set_someip_callback(
         self, callback_func: Callable[[SomeIpMessage, Tuple[str, int]], None]

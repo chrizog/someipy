@@ -137,6 +137,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             - The protocol and interface version are not checked yet.
             - If the message type in the received header is not a request, a warning is logged.
         """
+        print("Received message")
         header = message.header
         payload_to_return = bytes()
         header_to_return = header
@@ -425,6 +426,11 @@ async def construct_server_service_instance(
         return server_instance
 
     elif protocol == TransportLayerProtocol.TCP:
+
+        # Create a TcpClientManager, a TcpClientProtocol and a TCP server
+        # The TcpClientProtocol handles incoming (or lost) connections and will (de)register them
+        # in the TcpClientManager. The TcpClientProtocol also handles incoming data and will trigger
+        # the callback in the TcpClientManager which will forward the callback to the ClientServiceInstance.
         tcp_client_manager = TcpClientManager()
         loop = asyncio.get_running_loop()
         server = await loop.create_server(
