@@ -17,7 +17,7 @@ class SomeipDataProcessor:
 
     def process_data(self, new_data: bytes) -> bool:
         received_length = len(new_data)
-
+        
         # UDP case
         if self._datagram_mode:
             header = SomeIpHeader.from_buffer(new_data)

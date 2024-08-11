@@ -31,3 +31,7 @@ class SimplePeriodicTimer():
         if self._running and self._task is not None:
             self._task.cancel()
             self._running = False
+
+    @property
+    def task(self):
+        return self._task
