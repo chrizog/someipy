@@ -4,7 +4,6 @@ from someipy.serialization import (
     SomeIpFixedSizeArray,
     Uint8,
     Uint64,
-    
     Float32,
 )
 

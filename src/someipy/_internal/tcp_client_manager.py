@@ -5,6 +5,7 @@ from typing import Callable, Dict, Iterable, Tuple
 from someipy._internal.someip_message import SomeIpMessage
 from someipy._internal.someip_data_processor import SomeipDataProcessor
 
+
 class TcpClientProtocolInterface(ABC):
     @abstractmethod
     def write(self, data: bytes) -> None:
@@ -29,7 +30,7 @@ class TcpClientManagerInterface(ABC):
     @abstractmethod
     def unregister_client(self, client: TcpClientProtocolInterface) -> None:
         pass
-    
+
     @abstractmethod
     def get_client(self, ip_addr: str, port: int) -> TcpClientProtocolInterface:
         pass
@@ -39,11 +40,15 @@ class TcpClientManagerInterface(ABC):
         pass
 
     @abstractmethod
-    def someip_callback(self, client: TcpClientProtocolInterface, someip_message: SomeIpMessage) -> None:
+    def someip_callback(
+        self, client: TcpClientProtocolInterface, someip_message: SomeIpMessage
+    ) -> None:
         pass
 
     @abstractmethod
-    def register_callback(self, callback: Callable[[SomeIpMessage, Tuple[str, int]], None]) -> None:
+    def register_callback(
+        self, callback: Callable[[SomeIpMessage, Tuple[str, int]], None]
+    ) -> None:
         pass
 
 
@@ -68,15 +73,19 @@ class TcpClientManager(TcpClientManagerInterface):
             return self._clients[self._build_key(ip_addr, port)]
         else:
             return None
-        
+
     def get_all_clients(self) -> Iterable[TcpClientProtocolInterface]:
         return self._clients.values()
 
-    def someip_callback(self, client: TcpClientProtocolInterface, someip_message: SomeIpMessage) -> None:
+    def someip_callback(
+        self, client: TcpClientProtocolInterface, someip_message: SomeIpMessage
+    ) -> None:
         if self._someip_callback is not None:
             self._someip_callback(someip_message, (client.ip_addr, client.port))
 
-    def register_callback(self, callback: Callable[[SomeIpMessage, Tuple[str, int]], None]) -> None:
+    def register_callback(
+        self, callback: Callable[[SomeIpMessage, Tuple[str, int]], None]
+    ) -> None:
         self._someip_callback = callback
 
 
@@ -87,10 +96,10 @@ class TcpClientProtocol(asyncio.Protocol, TcpClientProtocolInterface):
         self._transport = None
         self._ip_addr_client = None
         self._port_client = None
-        self._data_processor = SomeipDataProcessor(datagram_mode=False)
+        self._data_processor = SomeipDataProcessor()
 
     def connection_made(self, transport: asyncio.BaseTransport):
-        peername: Tuple = transport.get_extra_info('peername')
+        peername: Tuple = transport.get_extra_info("peername")
         self._transport = transport
         self._ip_addr_client = peername[0]
         self._port_client = peername[1]
@@ -101,7 +110,9 @@ class TcpClientProtocol(asyncio.Protocol, TcpClientProtocolInterface):
         # Push data to processor
         result = self._data_processor.process_data(data)
         if result and self._client_manager is not None:
-            self._client_manager.someip_callback(self, self._data_processor.someip_message)
+            self._client_manager.someip_callback(
+                self, self._data_processor.someip_message
+            )
 
     def connection_lost(self, _) -> None:
         self._client_manager.unregister_client(self)

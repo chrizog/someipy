@@ -3,7 +3,12 @@ import ipaddress
 from typing import Any, Iterable, Union, Tuple
 
 from someipy._internal.someip_header import SomeIpHeader
-from someipy._internal.someip_sd_header import SdEventGroupEntry, SdIPV4EndpointOption, SdService, SomeIpSdHeader
+from someipy._internal.someip_sd_header import (
+    SdEventGroupEntry,
+    SdIPV4EndpointOption,
+    SdService,
+    SomeIpSdHeader,
+)
 from someipy._internal.someip_sd_extractors import (
     extract_offered_services,
     extract_subscribe_eventgroup_entries,

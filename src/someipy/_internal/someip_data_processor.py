@@ -1,3 +1,4 @@
+from enum import Enum
 import struct
 from someipy._internal.someip_header import SomeIpHeader
 from someipy._internal.someip_message import SomeIpMessage
@@ -5,60 +6,61 @@ from someipy._internal.someip_message import SomeIpMessage
 
 class SomeipDataProcessor:
 
-    def __init__(self, datagram_mode=True):
-        self._buffer = bytes()
-        self._expected_bytes = 0
-        self._datagram_mode = datagram_mode
-        self.someip_message = None
+    class State(Enum):
+        HEADER = 1
+        PAYLOAD = 2
+        PENDING = 3
+
+    def __init__(self):
+        self._reset()
+        self._someip_message = None
 
     def _reset(self):
+        self._state = SomeipDataProcessor.State.HEADER
         self._buffer = bytes()
-        self._expected_bytes = 0
+        self._expected_bytes = 8  # 2x 32-bit for header
+        self._total_length = 0
 
     def process_data(self, new_data: bytes) -> bool:
-        received_length = len(new_data)
-        
-        # UDP case
-        if self._datagram_mode:
-            header = SomeIpHeader.from_buffer(new_data)
-            expected_total_length = 8 + header.length
-            payload_length = expected_total_length - 16
-            if received_length == expected_total_length:
-                self.someip_message = SomeIpMessage(header=header, payload=new_data[16:])
-                return True
-            else:
-                # Malformed package -> return False
+        self._buffer += new_data
+        current_length = len(self._buffer)
+
+        if self._state == SomeipDataProcessor.State.HEADER:
+            if current_length < self._expected_bytes:
+                # The header was not fully received yet
                 return False
-        
-        # From here on: TCP case
-        if self._expected_bytes == 0 and len(self._buffer) == 0:
-
-            if received_length >= 8:
-                service_id, method_id, length = struct.unpack(">HHI", new_data[0:8])
-                expected_total_length = 8 + length
-                payload_length = expected_total_length - 16
-
-                # Case 1: Received exactly one SOME/IP message
-                if received_length == expected_total_length:
-                    header = SomeIpHeader.from_buffer(new_data)
-                    self.someip_message = SomeIpMessage(header=header, payload=new_data[16:(16+payload_length)])
-                    self._reset()
-                    return True
-                # Case 2: Received less bytes than expected
-                elif received_length < expected_total_length:
-                    self._expected_bytes = (expected_total_length - received_length)
-                    self._buffer = new_data
-                    return False
-                # Case 3: Received more bytes than expected
-                elif received_length > expected_total_length:
-                    # Assume it is the beginning of a new SOME/IP message, store remaining bytes in buffer
-                    end_payload = 16 + payload_length
-                    header = SomeIpHeader.from_buffer(new_data)
-                    self.someip_message = SomeIpMessage(header=header, payload=new_data[16:end_payload])
-                    self._buffer = new_data[end_payload:]
-                    self._expected_bytes = 0
-
-                    return True
-                    
             else:
-                pass # store in buffer
+                _, _, length = struct.unpack(">HHI", self._buffer[0:8])
+                self._total_length = length + 8
+                self._expected_bytes = self._total_length - current_length
+                self._state = SomeipDataProcessor.State.PAYLOAD
+
+        if self._state == SomeipDataProcessor.State.PAYLOAD:
+            if current_length < self._total_length:
+                # The payload was not fully received yet
+                self._expected_bytes = self._total_length - current_length
+                return False
+            else:
+                payload_length = self._total_length - 16
+                header = SomeIpHeader.from_buffer(self._buffer)
+                self._someip_message = SomeIpMessage(
+                    header=header, payload=self._buffer[16 : (16 + payload_length)]
+                )
+
+                self._state = SomeipDataProcessor.State.HEADER
+                # If more data was received over the current message boundary, keep the data
+                self._buffer = self._buffer[self._total_length :]
+                self._expected_bytes = 8
+                self._total_length = 0
+
+                return True
+
+    @property
+    def someip_message(self):
+        """Returns the SomeIpMessage that was received and interpreted"""
+        return self._someip_message
+
+    @property
+    def expected_bytes(self):
+        """Returns the number of bytes that are expected to complete the current message"""
+        return self._expected_bytes

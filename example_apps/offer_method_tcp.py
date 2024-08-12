@@ -19,13 +19,16 @@ SAMPLE_SERVICE_ID = 0x1234
 SAMPLE_INSTANCE_ID = 0x5678
 SAMPLE_METHOD_ID = 0x0123
 
+
 def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
     # Process the data and return True/False indicating the success of the operation
     # and the result of the method call in serialized form (bytes object)
     # If False is returned an error message will be sent back to the client. In that case
     # the payload can be an empty bytes-object, e.g. return False, b""
-    
-    print(f"Received data: {' '.join(f'0x{b:02x}' for b in input_data)} from IP: {addr[0]} Port: {addr[1]}")
+
+    print(
+        f"Received data: {' '.join(f'0x{b:02x}' for b in input_data)} from IP: {addr[0]} Port: {addr[1]}"
+    )
 
     try:
         # Deserialize the input data
@@ -34,12 +37,13 @@ def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> Tuple[bool, 
     except Exception as e:
         print(f"Error during deserialization: {e}")
         return False, b""
-    
+
     # Perform the addition
     sum = Sum()
     sum.value = Sint32(addends.addend1.value + addends.addend2.value)
     print(f"Send back: {' '.join(f'0x{b:02x}' for b in sum.serialize())}")
     return True, sum.serialize()
+
 
 async def main():
 
@@ -49,7 +53,9 @@ async def main():
     # Since the construction of the class ServiceDiscoveryProtocol is not trivial and would require an async __init__ function
     # use the construct_service_discovery function
     # The local interface IP address needs to be passed so that the src-address of all SD UDP packets is correctly set
-    service_discovery = await construct_service_discovery(SD_MULTICAST_GROUP, SD_PORT, INTERFACE_IP)
+    service_discovery = await construct_service_discovery(
+        SD_MULTICAST_GROUP, SD_PORT, INTERFACE_IP
+    )
 
     addition_method = Method(id=SAMPLE_METHOD_ID, method_handler=add_method_handler)
 
@@ -72,7 +78,7 @@ async def main():
         ttl=5,
         sd_sender=service_discovery,
         cyclic_offer_delay_ms=2000,
-        protocol=TransportLayerProtocol.TCP
+        protocol=TransportLayerProtocol.TCP,
     )
 
     # The service instance has to be attached always to the ServiceDiscoveryProtocol object, so that the service instance
@@ -101,7 +107,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    asyncio.run(main())

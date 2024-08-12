@@ -11,9 +11,7 @@ from someipy._internal.someip_sd_builder import (
     build_offer_service_sd_header,
     build_subscribe_eventgroup_ack_sd_header,
 )
-from someipy._internal.someip_header import (
-    SomeIpHeader
-)
+from someipy._internal.someip_header import SomeIpHeader
 from someipy._internal.someip_sd_header import (
     SdService,
     TransportLayerProtocol,
@@ -39,6 +37,7 @@ from someipy._internal.someip_endpoint import (
 )
 
 _logger_name = "server_service_instance"
+
 
 class ServerServiceInstance(ServiceDiscoveryObserver):
     _service: Service
@@ -119,7 +118,9 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
                     endpoint_to_str_int_tuple(sub.endpoint),
                 )
 
-    def someip_message_received(self, message: SomeIpMessage, addr: Tuple[str, int]) -> None:
+    def someip_message_received(
+        self, message: SomeIpMessage, addr: Tuple[str, int]
+    ) -> None:
         """
         Handle a received Some/IP message, typically when a client uses an offered service.
 
@@ -137,7 +138,6 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             - The protocol and interface version are not checked yet.
             - If the message type in the received header is not a request, a warning is logged.
         """
-        print("Received message")
         header = message.header
         payload_to_return = bytes()
         header_to_return = header
@@ -148,8 +148,8 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             # Update length in header to the correct length
             header_to_return.length = 8 + len(payload_to_return)
             self._someip_endpoint.sendto(
-                    header_to_return.to_buffer() + payload_to_return, addr
-                )
+                header_to_return.to_buffer() + payload_to_return, addr
+            )
 
         if header.service_id != self._service.id:
             get_logger(_logger_name).warn(
@@ -159,7 +159,6 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             header_to_return.return_code = ReturnCode.E_UNKNOWN_SERVICE.value
             send_response()
             return
-
 
         if header.method_id not in self._service.methods.keys():
             get_logger(_logger_name).warn(
@@ -185,7 +184,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
                 payload_to_return = payload_result
 
             send_response()
-            
+
         else:
             get_logger(_logger_name).warn(
                 f"Unknown message type received from {addr}: Type 0x{header.message_type:04X}"
@@ -232,7 +231,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             None
 
         """
-        
+
         # From SD specification:
         # [PRS_SOMEIPSD_00829] When receiving a SubscribeEventgroupAck or Sub-
         # scribeEventgroupNack the Service ID, Instance ID, Eventgroup ID, and Major Ver-
