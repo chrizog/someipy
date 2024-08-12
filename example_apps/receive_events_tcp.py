@@ -17,13 +17,14 @@ SAMPLE_INSTANCE_ID = 0x5678
 SAMPLE_EVENTGROUP_ID = 0x0321
 SAMPLE_EVENT_ID = 0x0123
 
+
 def temperature_callback(someip_message: SomeIpMessage) -> None:
     """
     Callback function that is called when a temperature message is received.
-    
+
     Args:
         someip_message (SomeIpMessage): The SomeIpMessage object containing the received message.
-        
+
     Returns:
         None: This function does not return anything.
     """
@@ -33,6 +34,7 @@ def temperature_callback(someip_message: SomeIpMessage) -> None:
         print(temperature_msg)
     except Exception as e:
         print(f"Error in deserialization: {e}")
+
 
 async def main():
     # It's possible to configure the logging level of the someipy library, e.g. logging.INFO, logging.DEBUG, logging.WARN, ..
@@ -68,7 +70,7 @@ async def main():
         endpoint=(ipaddress.IPv4Address(INTERFACE_IP), 3002),
         ttl=5,
         sd_sender=service_discovery,
-        protocol=TransportLayerProtocol.TCP
+        protocol=TransportLayerProtocol.TCP,
     )
 
     # It's possible to optionally register a callback function which will be called when an event from the
@@ -93,11 +95,11 @@ async def main():
         print("Service Discovery close..")
         service_discovery.close()
 
+        print("Shutdown service instance..")
+        await service_instance_temperature.close()
+
     print("End main task..")
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt as e:
-        pass
+    asyncio.run(main())

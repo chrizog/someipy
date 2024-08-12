@@ -49,24 +49,24 @@ def corrupt_someip_message() -> SomeIpMessage:
 
 def test_process_with_datagrams(valid_someip_message):
     data = valid_someip_message.header.to_buffer() + valid_someip_message.payload
-    processor = SomeipDataProcessor(datagram_mode=True)
+    processor = SomeipDataProcessor()
     result = processor.process_data(data)
 
     assert result is True
     assert processor.someip_message.header == valid_someip_message.header
-    assert processor._expected_bytes == 0
+    assert processor.expected_bytes == 8
     assert len(processor._buffer) == 0
 
     result = processor.process_data(data)
     assert result is True
     assert processor.someip_message.header == valid_someip_message.header
-    assert processor._expected_bytes == 0
+    assert processor._expected_bytes == 8
     assert len(processor._buffer) == 0
 
 
 def test_process_with_malformed_datagrams(corrupt_someip_message):
     data = corrupt_someip_message.header.to_buffer() + corrupt_someip_message.payload
-    processor = SomeipDataProcessor(datagram_mode=True)
+    processor = SomeipDataProcessor()
 
     result = processor.process_data(data)
 

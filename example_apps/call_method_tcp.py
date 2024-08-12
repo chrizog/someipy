@@ -3,7 +3,10 @@ import ipaddress
 import logging
 
 from someipy import TransportLayerProtocol
-from someipy.client_service_instance import MethodResult, construct_client_service_instance
+from someipy.client_service_instance import (
+    MethodResult,
+    construct_client_service_instance,
+)
 from someipy.service import ServiceBuilder
 from someipy.service_discovery import construct_service_discovery
 from someipy.logging import set_someipy_log_level
@@ -17,6 +20,7 @@ SAMPLE_SERVICE_ID = 0x1234
 SAMPLE_INSTANCE_ID = 0x5678
 SAMPLE_METHOD_ID = 0x0123
 
+
 async def main():
 
     # It's possible to configure the logging level of the someipy library, e.g. logging.INFO, logging.DEBUG, logging.WARN, ..
@@ -25,8 +29,10 @@ async def main():
     # Since the construction of the class ServiceDiscoveryProtocol is not trivial and would require an async __init__ function
     # use the construct_service_discovery function
     # The local interface IP address needs to be passed so that the src-address of all SD UDP packets is correctly set
-    service_discovery = await construct_service_discovery(SD_MULTICAST_GROUP, SD_PORT, INTERFACE_IP)
-    
+    service_discovery = await construct_service_discovery(
+        SD_MULTICAST_GROUP, SD_PORT, INTERFACE_IP
+    )
+
     addition_service = (
         ServiceBuilder()
         .with_service_id(SAMPLE_SERVICE_ID)
@@ -41,7 +47,7 @@ async def main():
         endpoint=(ipaddress.IPv4Address(INTERFACE_IP), 3002),
         ttl=5,
         sd_sender=service_discovery,
-        protocol=TransportLayerProtocol.TCP
+        protocol=TransportLayerProtocol.TCP,
     )
 
     # The service instance has to be attached always to the ServiceDiscoveryProtocol object, so that the service instance
@@ -50,11 +56,18 @@ async def main():
 
     try:
         while True:
-            
+
             method_parameter = Addends(addend1=1, addend2=2)
-            method_success, method_result = await client_instance_addition.call_method(SAMPLE_METHOD_ID, method_parameter.serialize())
+
+            # The call method function returns a tuple with the first element being a MethodResult enum
+            method_success, method_result = await client_instance_addition.call_method(
+                SAMPLE_METHOD_ID, method_parameter.serialize()
+            )
+            # Check the result of the method call and handle it accordingly
             if method_success == MethodResult.SUCCESS:
-                print(f"Received result for method: {' '.join(f'0x{b:02x}' for b in method_result)}")
+                print(
+                    f"Received result for method: {' '.join(f'0x{b:02x}' for b in method_result)}"
+                )
                 try:
                     sum = Sum().deserialize(method_result)
                     print(f"Sum: {sum.value.value}")
@@ -68,6 +81,8 @@ async def main():
                 print("Service not yet available..")
 
             await asyncio.sleep(2)
+
+    # When the application is canceled by the user, the asyncio.CancelledError is raised
     except asyncio.CancelledError:
         print("Shutdown..")
     finally:
@@ -81,7 +96,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    asyncio.run(main())

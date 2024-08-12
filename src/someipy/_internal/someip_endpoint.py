@@ -40,7 +40,7 @@ class UDPSomeipEndpoint(SomeipEndpoint, asyncio.DatagramProtocol):
     def __init__(self):
         self._callback: Callable[[SomeIpMessage, Tuple[str, int]], None] = None
         self._transport = None
-        self._processor = SomeipDataProcessor(datagram_mode=True)
+        self._processor = SomeipDataProcessor()
 
     def set_someip_callback(
         self, callback_func: Callable[[SomeIpMessage, Tuple[str, int]], None]

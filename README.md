@@ -1,4 +1,4 @@
-# someipy - A Python Library for the SOME/IP Protocol
+# someipy - A Python Library implementing the SOME/IP Protocol
 
 ## Get in Contact :postbox:
 
@@ -53,11 +53,11 @@ The library is still under development. The current major limitations and deviat
 
 ### SOME/IP
 
-- Calling methods via TCP is not supported yet. Only method calls via UDP are supported.
 - Only unicast services are supported.
 - SOME/IP-TP is not supported.
 - IPv6 endpoints are not supported.
-- Session handling is supported only for SOME/IP-SD and not for SOME/IP messages transporting events.
+- Session handling is supported only for SOME/IP-SD and not for SOME/IP messages transporting events or methods.
+- SOME/IP fields are not supported.
 
 ### Service Discovery
 

@@ -30,7 +30,7 @@ Open two terminals (one for Python someipy example app, one for test app).
 Start apps:
 
 ```bash
-python3send_events_udp.py
+python3 send_events_udp.py
 bash ./install/send_events/start_app.sh
 ```
 
@@ -53,7 +53,7 @@ Open two terminals (one for Python someipy example app, one for test app).
 Start apps:
 
 ```bash
-python3send_events_tcp.py
+python3 send_events_tcp.py
 bash ./install/send_events/start_app.sh
 ```
 
@@ -76,7 +76,7 @@ Open two terminals (one for Python someipy example app, one for test app).
 Start apps:
 
 ```bash
-python3receive_events_udp.py
+python3 receive_events_udp.py
 bash install/receive_events_udp/start_app.sh
 ```
 

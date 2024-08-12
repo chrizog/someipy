@@ -4,6 +4,7 @@ import struct
 from typing import Iterable, Tuple, Callable, Set, List
 
 from someipy import Service
+from someipy._internal.someip_data_processor import SomeipDataProcessor
 from someipy._internal.someip_sd_header import (
     SdService,
     TransportLayerProtocol,
@@ -192,7 +193,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                 endpoint_to_str_int_tuple(self._found_services[0].service.endpoint),
             )
 
-        # After sending the method call wait for one second
+        # After sending the method call wait for maximum one second
         try:
             await asyncio.wait_for(self._method_call_future, 1.0)
         except asyncio.TimeoutError:
@@ -206,7 +207,6 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
     def someip_message_received(
         self, someip_message: SomeIpMessage, addr: Tuple[str, int]
     ) -> None:
-        print("Some ip message received")
         if (
             someip_message.header.client_id == 0x00
             and someip_message.header.message_type == MessageType.NOTIFICATION.value
@@ -274,9 +274,6 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         pass
 
     def offer_service_update(self, offered_service: SdService):
-        # if len(self._eventgroups_to_subscribe) == 0:
-        #    return
-
         if self._service.id != offered_service.service_id:
             return
         if self._instance_id != offered_service.instance_id:
@@ -288,6 +285,9 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         ):
             if FoundService(offered_service) not in self._found_services:
                 self._found_services.append(FoundService(offered_service))
+
+            if len(self._eventgroups_to_subscribe) == 0:
+                return
 
             # Try to subscribe to requested event groups
             for eventgroup_to_subscribe in self._eventgroups_to_subscribe:
@@ -362,65 +362,23 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                 if self._tcp_connection.is_open():
                     self._tcp_connection_established_event.set()
 
-                class State(Enum):
-                    HEADER = 1
-                    PAYLOAD = 2
-                    PENDING = 3
+                get_logger(_logger_name).debug(f"Start reading on port {src_port}")
 
-                state = State.HEADER
-
-                expected_bytes = 8  # 2x 32-bit for header
-                header_data = bytes()
-                data = bytes()
-                get_logger(_logger_name).debug(f"Start TCP read on port {src_port}")
+                someip_processor = SomeipDataProcessor()
 
                 while self._tcp_connection.is_open():
                     try:
-                        if state == State.HEADER:
-                            while len(data) < expected_bytes:
-                                new_data = await asyncio.wait_for(
-                                    self._tcp_connection.reader.read(8), 3.0
-                                )
-                                print("Received data")
-                                data += new_data
-                            service_id, method_id, length = struct.unpack(
-                                ">HHI", data[0:8]
-                            )
-                            header_data = data[0:8]
+                        new_data = await asyncio.wait_for(
+                            self._tcp_connection.reader.read(
+                                someip_processor.expected_bytes
+                            ),
+                            3.0,
+                        )
 
-                            # The length bytes also covers 8 bytes header data without payload
-                            expected_bytes = length
-                            state = State.PAYLOAD
-
-                        elif state == State.PAYLOAD:
-                            data = bytes()
-                            while len(data) < expected_bytes:
-                                new_data = await asyncio.wait_for(
-                                    self._tcp_connection.reader.read(expected_bytes),
-                                    3.0,
-                                )
-                                data += new_data
-
-                            # Request ID to return code is also covered in the payload state, but needed for the SOME/IP header
-                            header_data = header_data + data[0:8]
-                            payload_data = data[8 : (8 + expected_bytes)]
-
-                            message_data = header_data + payload_data
-                            someip_header = SomeIpHeader.from_buffer(buf=message_data)
-                            someip_message = SomeIpMessage(someip_header, payload_data)
-
+                        if someip_processor.process_data(new_data):
                             self.someip_message_received(
-                                someip_message, (dst_ip, dst_port)
+                                someip_processor.someip_message, (dst_ip, dst_port)
                             )
-
-                            if len(data) == expected_bytes:
-                                # If the exact amount of needed bytes were received reset the buffer
-                                data = bytes()
-                                # If more data was received, keep the remaining part for the next reception
-                                # TODO: this needs more logic
-                                data = data[expected_bytes:]
-                            state = State.HEADER
-                            expected_bytes = 8
 
                     except asyncio.TimeoutError:
                         get_logger(_logger_name).debug(
