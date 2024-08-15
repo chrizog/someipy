@@ -8,3 +8,5 @@ venv/
 
 test_apps/build
 test_apps/install
+
+build/
