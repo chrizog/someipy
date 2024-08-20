@@ -1,7 +1,7 @@
 ---
 layout: default
 title: SOME/IP on a Raspberry Pi
-nav_order: 2
+nav_order: 8
 ---
 
 <style type="text/css">
