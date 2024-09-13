@@ -1,15 +1,15 @@
 # Copyright (C) 2024 Christian H.
-# 
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
@@ -47,7 +47,9 @@ def create_udp_socket(ip_address: str, port: int) -> socket.socket:
     return sock
 
 
-def create_rcv_multicast_socket(ip_address: str, port: int, interface_address: str = None) -> socket.socket:
+def create_rcv_multicast_socket(
+    ip_address: str, port: int, interface_address
+) -> socket.socket:
     """
     Create a datagram protocol based socket for multicast and bind the socket to the passed multicast address.
 
@@ -59,6 +61,8 @@ def create_rcv_multicast_socket(ip_address: str, port: int, interface_address: s
         The multicast IP address to which the socket is bound
     port : int
         The port to which the socket is bound
+    interface_address : str
+        The address of the local interface
 
     Returns
     -------
@@ -66,25 +70,21 @@ def create_rcv_multicast_socket(ip_address: str, port: int, interface_address: s
         The newly created socket
 
     """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     os_type = platform.system()
     if os_type == "Windows":
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        group = socket.inet_aton(ip_address)
-        mreq = struct.pack('4sL', group, socket.INADDR_ANY)
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
         sock.bind(("", port))
-        return sock
     else:
-        if interface_address is None:
-            raise ValueError("The interface address must be specified for non-Windows systems.")
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((ip_address, port))
-        # Specify the interface for multicast group membership instead of INADDR_ANY
-        mreq = struct.pack("4s4s", socket.inet_aton(ip_address), socket.inet_aton(interface_address))
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-        return sock
+
+    # Specify the interface for multicast group membership instead of INADDR_ANY
+    mreq = struct.pack(
+        "4s4s", socket.inet_aton(ip_address), socket.inet_aton(interface_address)
+    )
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+    return sock
+
 
 EndpointType = Tuple[ipaddress.IPv4Address, int]
 
