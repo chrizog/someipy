@@ -15,10 +15,13 @@ The project underwent a major maintenance shift in March 2022.
 
 ## HEAD
 
-{: .note }
-This website is built from the `HEAD` of the `master` branch of the GitHub repository.
 
 Code changes to `master` that are *not* in the latest release:
+
+## Release v0.0.5
+- Fix issue in socket bind for Service Discovery via multicast to use the right network interface
+- Add IPv4 SD Endpoint Option to avoid crashes in case it is received
+- Implement proper SD option handling ("first and second option run")
 
 ## Release v0.0.4
 ### New Features
