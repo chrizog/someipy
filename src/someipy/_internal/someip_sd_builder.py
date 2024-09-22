@@ -1,21 +1,22 @@
 # Copyright (C) 2024 Christian H.
-# 
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import ipaddress
 from typing import Tuple
 from someipy._internal.someip_header import SomeIpHeader
+from .transport_layer_protocol import TransportLayerProtocol
 from .someip_sd_header import (
     SD_BYTE_LENGTH_IP4ENDPOINT_OPTION,
     SD_SINGLE_ENTRY_LENGTH_BYTES,
@@ -30,7 +31,6 @@ from .someip_sd_header import (
     SdIPV4EndpointOption,
     SdEventGroupEntry,
 )
-from someipy._internal.someip_sd_header import TransportLayerProtocol
 
 
 def build_offer_service_sd_header(
