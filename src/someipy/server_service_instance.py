@@ -1,15 +1,15 @@
 # Copyright (C) 2024 Christian H.
-# 
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
@@ -22,6 +22,7 @@ from someipy.service import Service
 from someipy._internal.tcp_client_manager import TcpClientManager, TcpClientProtocol
 from someipy._internal.message_types import MessageType, ReturnCode
 from someipy._internal.someip_sd_builder import (
+    build_stop_offer_service_sd_header,
     build_subscribe_eventgroup_ack_entry,
     build_offer_service_sd_header,
     build_subscribe_eventgroup_ack_sd_header,
@@ -230,6 +231,10 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         # No reaction in a server instance needed
         pass
 
+    def stop_offer_service_update(self, _: SdService) -> None:
+        # No reaction in a server instance needed
+        pass
+
     def subscribe_eventgroup_update(
         self,
         sd_event_group: SdEventGroupEntry,
@@ -375,18 +380,34 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
 
         Returns:
             None
-
-        TODO:
-            - Send out a stop offer SD message before stopping the timer.
         """
         get_logger(_logger_name).debug(
             f"Stop offer for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}"
         )
 
+        self._subscribers.clear()
+
         if self._offer_timer is not None:
             self._offer_timer.stop()
             await self._offer_timer.task
-        # TODO: send out a stop offer sd message before stopping the timer
+
+        service_to_stop = SdService(
+            service_id=self._service.id,
+            instance_id=self._instance_id,
+            major_version=1,
+            minor_version=0,
+            ttl=self._ttl,
+            endpoint=self._endpoint,
+            protocol=self._protocol,
+        )
+        (
+            session_id,
+            reboot_flag,
+        ) = self._sd_sender.get_multicast_session_handler().update_session()
+        sd_header = build_stop_offer_service_sd_header(
+            service_to_stop, session_id, reboot_flag
+        )
+        self._sd_sender.send_multicast(sd_header.to_buffer())
 
 
 async def construct_server_service_instance(

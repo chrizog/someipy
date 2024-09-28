@@ -1,15 +1,15 @@
 # Copyright (C) 2024 Christian H.
-# 
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
@@ -28,7 +28,7 @@ from someipy._internal.someip_sd_header import (
 from someipy._internal.someip_header import (
     SomeIpHeader,
 )
-from someipy._internal.someip_sd_builder import build_subscribe_eventgroup_entry
+from someipy._internal.someip_sd_builder import build_subscribe_eventgroup_sd_header
 from someipy._internal.service_discovery_abcs import (
     ServiceDiscoveryObserver,
     ServiceDiscoverySender,
@@ -61,6 +61,9 @@ class ExpectedAck:
     def __init__(self, eventgroup_id: int) -> None:
         self.eventgroup_id = eventgroup_id
 
+    def __eq__(self, value: object) -> bool:
+        return self.eventgroup_id == value.eventgroup_id
+
 
 class FoundService:
     service: SdService
@@ -84,8 +87,10 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
 
     _eventgroups_to_subscribe: Set[int]
     _expected_acks: List[ExpectedAck]
+
     _callback: Callable[[bytes], None]
     _found_services: Iterable[FoundService]
+    _subscription_active: bool
     _method_call_future: asyncio.Future
 
     def __init__(
@@ -118,6 +123,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         self._shutdown_requested = False
 
         self._found_services = []
+        self._subscription_active = False
         self._method_call_future = None
 
     def register_callback(self, callback: Callable[[SomeIpMessage], None]) -> None:
@@ -227,7 +233,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
             and someip_message.header.message_type == MessageType.NOTIFICATION.value
             and someip_message.header.return_code == 0x00
         ):
-            if self._callback is not None:
+            if self._callback is not None and self._subscription_active:
                 self._callback(someip_message)
 
         if (
@@ -312,7 +318,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                 ) = self._sd_sender.get_unicast_session_handler().update_session()
 
                 # Improvement: Pack all entries into a single SD message
-                subscribe_sd_header = build_subscribe_eventgroup_entry(
+                subscribe_sd_header = build_subscribe_eventgroup_sd_header(
                     service_id=self._service.id,
                     instance_id=self._instance_id,
                     major_version=self._service.major_version,
@@ -349,6 +355,20 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                     buffer=subscribe_sd_header.to_buffer(),
                     dest_ip=offered_service.endpoint[0],
                 )
+
+    def stop_offer_service_update(self, offered_service: SdService) -> None:
+        if self._service.id != offered_service.service_id:
+            return
+        if self._instance_id != offered_service.instance_id:
+            return
+
+        # Remove the service from the found services
+        self._found_services = [
+            f for f in self._found_services if f.service != offered_service
+        ]
+
+        self._expected_acks = []
+        self._subscription_active = False
 
     async def setup_tcp_connection(
         self, src_ip: str, src_port: int, dst_ip: str, dst_port: int
@@ -422,6 +442,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         for expected_ack in self._expected_acks:
             if expected_ack.eventgroup_id == event_group_entry.eventgroup_id:
                 ack_found = True
+                self._subscription_active = True
                 get_logger(_logger_name).debug(
                     f"Received expected subscribe ACK for instance 0x{event_group_entry.sd_entry.instance_id:04X}, service 0x{event_group_entry.sd_entry.service_id:04X}, eventgroup 0x{event_group_entry.eventgroup_id:04X}"
                 )
@@ -430,7 +451,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
 
         self._expected_acks = new_acks
         if not ack_found:
-            get_logger(_logger_name).warn(
+            get_logger(_logger_name).warning(
                 f"Received unexpected subscribe ACK for instance 0x{event_group_entry.sd_entry.instance_id:04X}, service 0x{event_group_entry.sd_entry.service_id:04X}, eventgroup 0x{event_group_entry.eventgroup_id:04X}"
             )
 
