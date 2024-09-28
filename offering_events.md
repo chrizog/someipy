@@ -83,6 +83,8 @@ service_instance_temperature = await construct_server_service_instance(
 
 The parameters `ttl` and `cyclic_offer_delay_ms` are described [SOME/IP Service Interface Datatypes](/someipy/service_discovery.html)
 
+> **_Multiple service instances:_**  If you want to offer multiple service instances in the same application, you would simply construct another service instance here. Read the example application [offer_multiple_services.py](https://github.com/chrizog/someipy/blob/master/example_apps/offer_multiple_services.py) for more details. 
+
 
 ## Step 3: Announce the Service via Service Discovery
 
