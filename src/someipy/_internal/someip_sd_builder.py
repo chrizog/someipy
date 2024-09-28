@@ -87,21 +87,21 @@ def build_offer_service_sd_header(
 
 
 def build_stop_offer_service_sd_header(
-    service_to_offer: SdService, session_id: int, reboot_flag: bool
+    service: SdService, session_id: int, reboot_flag: bool
 ) -> SomeIpSdHeader:
     sd_entry: SdEntry = SdEntry(
-        SdEntryType.OFFER_SERVICE,
+        SdEntryType.STOP_OFFER_SERVICE,
         0,  # index_first_option
         0,  # index_second_option
         1,  # num_options_1
         0,  # num_options_2
-        service_to_offer.service_id,
-        service_to_offer.instance_id,
-        service_to_offer.major_version,
-        service_to_offer.ttl,
+        service.service_id,
+        service.instance_id,
+        service.major_version,
+        0x00,
     )
     service_entry = SdServiceEntry(
-        sd_entry=sd_entry, minor_version=service_to_offer.minor_version
+        sd_entry=sd_entry, minor_version=service.minor_version
     )
 
     option_entry_common = SdOptionCommon(
@@ -111,9 +111,9 @@ def build_stop_offer_service_sd_header(
     )
     sd_option_entry = SdIPV4EndpointOption(
         sd_option_common=option_entry_common,
-        ipv4_address=service_to_offer.endpoint[0],
-        protocol=service_to_offer.protocol,
-        port=service_to_offer.endpoint[1],
+        ipv4_address=service.endpoint[0],
+        protocol=service.protocol,
+        port=service.endpoint[1],
     )
 
     # 20 bytes for header and length values of entries and options
@@ -184,7 +184,7 @@ def build_subscribe_eventgroup_ack_sd_header(
     )
 
 
-def build_subscribe_eventgroup_entry(
+def build_subscribe_eventgroup_sd_header(
     service_id: int,
     instance_id: int,
     major_version: int,
