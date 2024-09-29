@@ -187,6 +187,19 @@ class SdService:
     endpoint: Tuple[ipaddress.IPv4Address, int]
     protocol: TransportLayerProtocol
 
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.service_id,
+                self.instance_id,
+                self.major_version,
+                self.minor_version,
+                self.ttl,
+                self.endpoint,
+                self.protocol,
+            )
+        )
+
 
 @dataclass
 class SomeIpSdHeader:

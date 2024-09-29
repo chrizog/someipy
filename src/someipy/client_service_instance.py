@@ -290,11 +290,11 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         # TODO: Implement StopSubscribe
         raise NotImplementedError
 
-    def find_service_update(self):
+    def handle_find_service(self):
         # Not needed in client service instance
         pass
 
-    def offer_service_update(self, offered_service: SdService):
+    def handle_offer_service(self, offered_service: SdService):
         if self._service.id != offered_service.service_id:
             return
         if self._instance_id != offered_service.instance_id:
@@ -356,7 +356,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                     dest_ip=offered_service.endpoint[0],
                 )
 
-    def stop_offer_service_update(self, offered_service: SdService) -> None:
+    def handle_stop_offer_service(self, offered_service: SdService) -> None:
         if self._service.id != offered_service.service_id:
             return
         if self._instance_id != offered_service.instance_id:
@@ -430,11 +430,11 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
             get_logger(_logger_name).debug("TCP task is cancelled. Raise again.")
             raise
 
-    def subscribe_eventgroup_update(self, _, __) -> None:
+    def handle_subscribe_eventgroup(self, _, __) -> None:
         # Not needed for client instance
         pass
 
-    def subscribe_ack_eventgroup_update(
+    def handle_subscribe_ack_eventgroup(
         self, event_group_entry: SdEventGroupEntry
     ) -> None:
         new_acks: List[ExpectedAck] = []

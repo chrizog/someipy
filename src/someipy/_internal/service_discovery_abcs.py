@@ -25,19 +25,19 @@ from someipy._internal.session_handler import SessionHandler
 
 class ServiceDiscoveryObserver(ABC):
     @abstractmethod
-    def offer_service_update(self, offered_service: SdService) -> None:
+    def handle_offer_service(self, offered_service: SdService) -> None:
         pass
 
     @abstractmethod
-    def stop_offer_service_update(self, offered_service: SdService) -> None:
+    def handle_stop_offer_service(self, offered_service: SdService) -> None:
         pass
 
     @abstractmethod
-    def find_service_update(self) -> None:
+    def handle_find_service(self) -> None:
         pass
 
     @abstractmethod
-    def subscribe_eventgroup_update(
+    def handle_subscribe_eventgroup(
         self,
         sd_event_group: SdEventGroupEntry,
         ip4_endpoint_option: SdIPV4EndpointOption,
@@ -45,7 +45,7 @@ class ServiceDiscoveryObserver(ABC):
         pass
 
     @abstractmethod
-    def subscribe_ack_eventgroup_update(
+    def handle_subscribe_ack_eventgroup(
         self, sd_event_group: SdEventGroupEntry
     ) -> None:
         pass
@@ -62,6 +62,11 @@ class ServiceDiscoverySubject(ABC):
 
 
 class ServiceDiscoverySender(ABC):
+
+    @abstractmethod
+    def offer_service(self, service: SdService) -> None:
+        pass
+
     @abstractmethod
     def send_multicast(self, buffer: bytes) -> None:
         pass

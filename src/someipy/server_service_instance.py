@@ -206,7 +206,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
                 f"Unknown message type received from {addr}: Type 0x{header.message_type:04X}"
             )
 
-    def find_service_update(self):
+    def handle_find_service(self):
         """
         Handle an SD find service entry. Not implemented yet.
 
@@ -218,7 +218,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         # TODO: implement SD behaviour and send back offer
         pass
 
-    def offer_service_update(self, _: SdService):
+    def handle_offer_service(self, _: SdService):
         """
         React on an SD offer entry. In a server instance no reaction is needed.
 
@@ -231,11 +231,11 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         # No reaction in a server instance needed
         pass
 
-    def stop_offer_service_update(self, _: SdService) -> None:
+    def handle_stop_offer_service(self, _: SdService) -> None:
         # No reaction in a server instance needed
         pass
 
-    def subscribe_eventgroup_update(
+    def handle_subscribe_eventgroup(
         self,
         sd_event_group: SdEventGroupEntry,
         ipv4_endpoint_option: SdIPV4EndpointOption,
@@ -307,7 +307,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             )
         )
 
-    def subscribe_ack_eventgroup_update(self, _: SdEventGroupEntry) -> None:
+    def handle_subscribe_ack_eventgroup(self, _: SdEventGroupEntry) -> None:
         """
         React on an SD subscribe ACK event group entry. Shall not be received in a server instance. No reaction is needed in a server service instance.
 
@@ -330,13 +330,8 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
         Returns:
             None
         """
-        (
-            session_id,
-            reboot_flag,
-        ) = self._sd_sender.get_multicast_session_handler().update_session()
-
         get_logger(_logger_name).debug(
-            f"Offer service for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}, TTL: {self._ttl}, version: {self._service.major_version}.{self._service.minor_version}, session ID: {session_id}"
+            f"Offer service for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}, TTL: {self._ttl}, version: {self._service.major_version}.{self._service.minor_version}"
         )
 
         service_to_offer = SdService(
@@ -348,10 +343,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             endpoint=self._endpoint,
             protocol=self._protocol,
         )
-        sd_header = build_offer_service_sd_header(
-            service_to_offer, session_id, reboot_flag
-        )
-        self._sd_sender.send_multicast(sd_header.to_buffer())
+        self._sd_sender.offer_service(service_to_offer)
 
     def start_offer(self):
         """
