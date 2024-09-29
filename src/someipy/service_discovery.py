@@ -15,9 +15,11 @@
 
 import asyncio
 import ipaddress
+import queue
 from typing import Any, Iterable, Union, Tuple
 
 from someipy._internal.someip_header import SomeIpHeader
+from someipy._internal.someip_sd_builder import build_offer_service_sd_header
 from someipy._internal.someip_sd_header import (
     SdEventGroupEntry,
     SdIPV4EndpointOption,
@@ -72,6 +74,8 @@ class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
 
         self.mcast_session_handler = SessionHandler()
         self.unicast_session_handler = SessionHandler()
+
+        self.offer_service_queue = queue.Queue()
 
     def get_multicast_session_handler(self) -> SessionHandler:
         """
@@ -165,6 +169,32 @@ class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
         """
         pass
 
+    def offer_service(self, service: SdService) -> None:
+        # Put the service into a queue
+        self.offer_service_queue.put(service)
+
+        # Defer sending and wait for 20ms
+        # This opens a time window of 20ms for other instances to offer services
+        # which would be packed together into a single SD message
+        asyncio.get_running_loop().call_later(0.02, self._sendout_offered_services)
+
+    def _sendout_offered_services(self) -> None:
+        services_to_offer = []
+        while not self.offer_service_queue.empty():
+            service = self.offer_service_queue.get()
+            services_to_offer.append(service)
+        if len(services_to_offer) > 0:
+            (
+                session_id,
+                reboot_flag,
+            ) = self.mcast_session_handler.update_session()
+
+            sd_message = build_offer_service_sd_header(
+                services_to_offer, session_id, reboot_flag
+            )
+            buffer = sd_message.to_buffer()
+            self.send_multicast(buffer)
+
     def send_multicast(self, buffer: bytes) -> None:
         """
         Send a multicast message.
@@ -195,7 +225,7 @@ class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
             f"Received offer for instance 0x{offered_service.instance_id:04X}, service 0x{offered_service.service_id:04X}"
         )
         for o in self.attached_observers:
-            o.offer_service_update(offered_service)
+            o.handle_offer_service(offered_service)
 
     def _handle_subscribe_eventgroup_entry(
         self,
@@ -213,7 +243,7 @@ class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
             f"Received subscribe for instance 0x{event_group_entry.sd_entry.instance_id:04X}, service 0x{event_group_entry.sd_entry.service_id:04X}, eventgroup 0x{event_group_entry.eventgroup_id:04X}"
         )
         for o in self.attached_observers:
-            o.subscribe_eventgroup_update(event_group_entry, ipv4_endpoint_option)
+            o.handle_subscribe_eventgroup(event_group_entry, ipv4_endpoint_option)
 
     def _handle_subscribe_ack_eventgroup_entry(
         self, event_group_entry: SdEventGroupEntry
