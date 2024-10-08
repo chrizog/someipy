@@ -34,6 +34,7 @@ class SdOptionType(Enum):
     IPV4_MULTICAST = 0x14  # TODO: not implemented
     IPV6_MULTICAST = 0x16  # TODO: not implemented
     IPV4_SD_ENDPOINT = 0x24  # TODO: not implemented
+    IPV6_SD_ENDPOINT = 0x26  # TODO: not implemented
 
 
 @dataclass

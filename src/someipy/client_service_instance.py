@@ -142,7 +142,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
     async def call_method(
         self, method_id: int, payload: bytes
     ) -> Tuple[MethodResult, bytes]:
-
+        get_logger(_logger_name).debug(f"Try to call method 0x{method_id:04X}")
         has_service = False
         for s in self._found_services:
             if (

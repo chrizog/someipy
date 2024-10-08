@@ -1,6 +1,7 @@
 import asyncio
 import ipaddress
 import logging
+import sys
 from typing import Tuple
 
 from someipy import TransportLayerProtocol
@@ -13,7 +14,7 @@ from addition_method_parameters import Addends, Sum
 
 SD_MULTICAST_GROUP = "224.224.224.245"
 SD_PORT = 30490
-INTERFACE_IP = "127.0.0.1"
+DEFAULT_INTERFACE_IP = "127.0.0.1"  # Default IP if not provided
 
 SAMPLE_SERVICE_ID = 0x1234
 SAMPLE_INSTANCE_ID = 0x5678
@@ -50,11 +51,19 @@ async def main():
     # It's possible to configure the logging level of the someipy library, e.g. logging.INFO, logging.DEBUG, logging.WARN, ..
     set_someipy_log_level(logging.DEBUG)
 
+    # Get interface ip to use from command line argument (--interface_ip) or use default
+    interface_ip = DEFAULT_INTERFACE_IP
+    for i, arg in enumerate(sys.argv):
+        if arg == "--interface_ip":
+            if i + 1 < len(sys.argv):
+                interface_ip = sys.argv[i + 1]
+                break
+
     # Since the construction of the class ServiceDiscoveryProtocol is not trivial and would require an async __init__ function
     # use the construct_service_discovery function
     # The local interface IP address needs to be passed so that the src-address of all SD UDP packets is correctly set
     service_discovery = await construct_service_discovery(
-        SD_MULTICAST_GROUP, SD_PORT, INTERFACE_IP
+        SD_MULTICAST_GROUP, SD_PORT, interface_ip
     )
 
     addition_method = Method(id=SAMPLE_METHOD_ID, method_handler=add_method_handler)
@@ -72,7 +81,7 @@ async def main():
         addition_service,
         instance_id=SAMPLE_INSTANCE_ID,
         endpoint=(
-            ipaddress.IPv4Address(INTERFACE_IP),
+            ipaddress.IPv4Address(interface_ip),
             3000,
         ),  # src IP and port of the service
         ttl=5,

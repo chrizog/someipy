@@ -51,7 +51,7 @@ void run() {
         payload_->set_data(its_data, its_size);
         std::cout << "Setting event (Length=" << std::dec << its_size << ")." << std::endl;
         app_->notify(SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID, SAMPLE_EVENT_ID, payload_);
-        std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 }
         
