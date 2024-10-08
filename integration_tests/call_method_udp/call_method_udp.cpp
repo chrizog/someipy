@@ -38,9 +38,6 @@ public:
                 SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID, SAMPLE_METHOD_ID,
                 std::bind(&service_sample::on_message, this,
                         std::placeholders::_1));
-
-        std::cout << "Static routing " << (use_static_routing_ ? "ON" : "OFF")
-                  << std::endl;
         return true;
     }
 
@@ -90,7 +87,17 @@ public:
     }
 
     void on_message(const std::shared_ptr<vsomeip::message> &_request) {
-        std::cout << "Received a message with Client/Session ["
+        // Log the current time.
+        auto now = std::chrono::system_clock::now();
+        auto now_time_t = std::chrono::system_clock::to_time_t(now);
+        auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now.time_since_epoch()).count();
+        auto now_ms_remainder = now_ms % 1000;
+        auto now_tm = std::localtime(&now_time_t);
+        std::stringstream now_ss;
+        now_ss << std::put_time(now_tm, "%Y-%m-%d %H:%M:%S") << "."
+                << std::setfill('0') << std::setw(3) << now_ms_remainder;
+        std::cout << now_ss.str() << " Received a message with Client/Session ["
 		  << std::setfill('0') << std::hex
 		  << std::setw(4) << _request->get_client() << "/"
 		  << std::setw(4) << _request->get_session() << "]"
@@ -114,24 +121,7 @@ public:
         std::unique_lock<std::mutex> its_lock(mutex_);
         while (!blocked_)
             condition_.wait(its_lock);
-
-        bool is_offer(true);
-
-        if (use_static_routing_) {
-            offer();
-            while (running_);
-        } else {
-            while (running_) {
-                if (is_offer)
-                    offer();
-                else
-                    stop_offer();
-
-                for (int i = 0; i < 10 && running_; i++)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-                is_offer = !is_offer;
-            }
-        }
+        offer();
     }
 
 private:

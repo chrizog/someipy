@@ -257,7 +257,8 @@ class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
         get_logger(_logger_name).debug(
             f"Received subscribe ACK for instance 0x{event_group_entry.sd_entry.instance_id:04X}, service 0x{event_group_entry.sd_entry.service_id:04X}, eventgroup 0x{event_group_entry.eventgroup_id:04X}"
         )
-        # TODO: Implement subscription ACK handling
+        for o in self.attached_observers:
+            o.handle_subscribe_ack_eventgroup(event_group_entry)
 
 
 async def construct_service_discovery(

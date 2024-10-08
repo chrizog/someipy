@@ -6,7 +6,7 @@ venv/
 
 *.whl
 
-test_apps/build
-test_apps/install
+integration_tests/build
+integration_tests/install
 
 build/
