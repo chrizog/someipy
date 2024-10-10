@@ -9,16 +9,14 @@ class TestReceiveEventsTcp(TestBase):
 
         self.ld_library_path = ld_library_path
         self.vsomeip_app = [
-            f"{repository}/test_apps/install/receive_events_tcp/receive_events_tcp"
+            f"{repository}/integration_tests/install/receive_events_tcp/receive_events_tcp"
         ]
         self.someipy_app = [
             "python3",
             f"{repository}/example_apps/receive_events_tcp.py",
             f"--interface_ip {interface_ip}",
         ]
-        self.vsomeip_config = (
-            f"{repository}/test_apps/install/receive_events_tcp/vsomeip-client.json"
-        )
+        self.vsomeip_config = f"{repository}/integration_tests/install/receive_events_tcp/vsomeip-client.json"
 
     def evaluate(self) -> bool:
         sent_events = 0

@@ -8,16 +8,14 @@ class TestOfferMethodUdp(TestBase):
 
         self.ld_library_path = ld_library_path
         self.vsomeip_app = [
-            f"{repository}/test_apps/install/offer_method_udp/offer_method_udp"
+            f"{repository}/integration_tests/install/offer_method_udp/offer_method_udp"
         ]
         self.someipy_app = [
             "python3",
             f"{repository}/example_apps/offer_method_udp.py",
             f"--interface_ip {interface_ip}",
         ]
-        self.vsomeip_config = (
-            f"{repository}/test_apps/install/offer_method_udp/vsomeip-client.json"
-        )
+        self.vsomeip_config = f"{repository}/integration_tests/install/offer_method_udp/vsomeip-client.json"
 
     def evaluate(self) -> bool:
         method_calls = 0
