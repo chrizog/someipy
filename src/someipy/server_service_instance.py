@@ -397,7 +397,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             reboot_flag,
         ) = self._sd_sender.get_multicast_session_handler().update_session()
         sd_header = build_stop_offer_service_sd_header(
-            service_to_stop, session_id, reboot_flag
+            [service_to_stop], session_id, reboot_flag
         )
         self._sd_sender.send_multicast(sd_header.to_buffer())
 

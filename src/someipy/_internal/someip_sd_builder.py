@@ -116,56 +116,13 @@ def build_offer_service_sd_header(
 
 
 def build_stop_offer_service_sd_header(
-    service: SdService, session_id: int, reboot_flag: bool
+    services: Iterable[SdService], session_id: int, reboot_flag: bool
 ) -> SomeIpSdHeader:
-    sd_entry: SdEntry = SdEntry(
-        SdEntryType.STOP_OFFER_SERVICE,
-        0,  # index_first_option
-        0,  # index_second_option
-        1,  # num_options_1
-        0,  # num_options_2
-        service.service_id,
-        service.instance_id,
-        service.major_version,
-        0x00,
-    )
-    service_entry = SdServiceEntry(
-        sd_entry=sd_entry, minor_version=service.minor_version
-    )
-
-    option_entry_common = SdOptionCommon(
-        length=SD_IPV4ENDPOINT_OPTION_LENGTH_VALUE,
-        type=SdOptionType.IPV4_ENDPOINT,
-        discardable_flag=False,
-    )
-    sd_option_entry = SdIPV4EndpointOption(
-        sd_option_common=option_entry_common,
-        ipv4_address=service.endpoint[0],
-        protocol=service.protocol,
-        port=service.endpoint[1],
-    )
-
-    # 20 bytes for header and length values of entries and options
-    # + length of entries array (1 entry)
-    # + length of options array (1 option)
-    total_length = (
-        20
-        + (1 * SD_SINGLE_ENTRY_LENGTH_BYTES)
-        + (1 * SD_BYTE_LENGTH_IP4ENDPOINT_OPTION)
-    )
-    someip_header = SomeIpHeader.generate_sd_header(
-        length=total_length, session_id=session_id
-    )
-
-    return SomeIpSdHeader(
-        someip_header=someip_header,
-        reboot_flag=reboot_flag,
-        unicast_flag=True,
-        length_entries=(1 * SD_SINGLE_ENTRY_LENGTH_BYTES),
-        length_options=(1 * SD_BYTE_LENGTH_IP4ENDPOINT_OPTION),
-        service_entries=[service_entry],
-        options=[sd_option_entry],
-    )
+    header = build_offer_service_sd_header(services, session_id, reboot_flag)
+    for entry in header.service_entries:
+        entry.sd_entry.entry_type = SdEntryType.STOP_OFFER_SERVICE
+        entry.sd_entry.ttl = 0
+    return header
 
 
 def build_subscribe_eventgroup_ack_entry(
@@ -274,4 +231,49 @@ def build_subscribe_eventgroup_sd_header(
         length_options=(1 * SD_BYTE_LENGTH_IP4ENDPOINT_OPTION),
         service_entries=[entry],
         options=[sd_option_entry],
+    )
+
+
+def build_find_service_sd_header(
+    service_id: int,
+    instance_id: int = 0xFFFF,
+    major_version: int = 0xFF,
+    minor_version: int = 0xFFFFFFFF,
+    session_id: int = 0,
+    reboot_flag: bool = False,
+) -> SomeIpSdHeader:
+    sd_entry: SdEntry = SdEntry(
+        SdEntryType.FIND_SERVICE,
+        0,  # index_first_option
+        0,  # index_second_option
+        0,  # num_options_1
+        0,  # num_options_2
+        service_id,
+        instance_id,
+        major_version,
+        0,  # TTL can be set to an arbitrary value
+    )
+
+    sd_service_entry = SdServiceEntry(sd_entry=sd_entry, minor_version=minor_version)
+
+    # 20 bytes for header and length values of entries and options
+    # + length of entries array (1 entry)
+    # + length of options array (1 option)
+    total_length = (
+        20
+        + (1 * SD_SINGLE_ENTRY_LENGTH_BYTES)
+        + (1 * SD_BYTE_LENGTH_IP4ENDPOINT_OPTION)
+    )
+    someip_header = SomeIpHeader.generate_sd_header(
+        length=total_length, session_id=session_id
+    )
+
+    return SomeIpSdHeader(
+        someip_header=someip_header,
+        reboot_flag=reboot_flag,
+        unicast_flag=True,
+        length_entries=(1 * SD_SINGLE_ENTRY_LENGTH_BYTES),
+        length_options=(1 * SD_BYTE_LENGTH_IP4ENDPOINT_OPTION),
+        service_entries=[sd_service_entry],
+        options=[],
     )

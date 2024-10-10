@@ -8,14 +8,14 @@ class TestOfferMultipleServices(TestBase):
 
         self.ld_library_path = ld_library_path
         self.vsomeip_app = [
-            f"{repository}/test_apps/install/offer_multiple_services/offer_multiple_services"
+            f"{repository}/integration_tests/install/offer_multiple_services/offer_multiple_services"
         ]
         self.someipy_app = [
             "python3",
             f"{repository}/example_apps/offer_multiple_services.py",
             f"--interface_ip {interface_ip}",
         ]
-        self.vsomeip_config = f"{repository}/test_apps/install/offer_multiple_services/vsomeip-client.json"
+        self.vsomeip_config = f"{repository}/integration_tests/install/offer_multiple_services/vsomeip-client.json"
 
     def evaluate(self) -> bool:
         sent_events = 0
