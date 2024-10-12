@@ -1,6 +1,6 @@
 ---
 layout: default
-title: SOME/IP Service Interface Datatypes
+title: SOME/IP Service Interface Data Types
 nav_order: 4
 ---
 
@@ -18,26 +18,26 @@ p:has(img) {
 }
 </style>
 
-# SOME/IP Service Interface Datatypes
+# SOME/IP Service Interface Data Types
 A major task in setting up a service oriented communication between ECUs via SOME/IP (and also in other middlewares) is to define a common service interface datatype definition, so that all participants know how to interpret and parse received raw bytes into a meaningful data structure. Vice versa participants need to know how to serialize their data structures into bytes to be transmitted to other participants.
 
-The [SOME/IP protocol specification](https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPProtocol.pdf) defines the on-wire format of SOME/IP. The specification describes a header structure and also how different datatypes are serialized on-wire. As a programmer using someipy, you don't need to take care of the on-wire format. someipy provides datatypes as Python classes ready to use and functions to serialize a Python object describing a data structure into a Python `bytes()` object and deserializing a received `bytes()` object into a Python object.
+The [SOME/IP protocol specification](https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPProtocol.pdf) defines the on-wire format of SOME/IP. The specification describes a header structure and also how different data types are serialized on-wire. As a programmer using someipy, you don't need to take care of the on-wire format. someipy provides data types as Python classes ready to use and functions to serialize a Python object describing a data structure into a Python `bytes()` object and deserializing a received `bytes()` object into a Python object.
 
 ## SOME/IP Interface Datatype Definition in Python
-Many middlewares and their stacks like [ROS (Robot Operating System)](https://www.ros.org/) or [OpenDDS](https://opendds.org/about/articles/Article-Intro.html) use an interface description language independent of the programming language to define the data structures. E.g. ROS uses ROS message (.msg) files and OpenDDS uses IDL (.idl) files. Out of these separate interface files source code is generated containing the actual datatypes and (de)serializers to be used in Python or C++.
+Many middlewares and their stacks like [ROS (Robot Operating System)](https://www.ros.org/) or [OpenDDS](https://opendds.org/about/articles/Article-Intro.html) use an interface description language independent of the programming language to define the data structures. E.g. ROS uses ROS message (.msg) files and OpenDDS uses IDL (.idl) files. Out of these separate interface files source code is generated containing the actual data types and (de)serializers to be used in Python or C++.
 
-With someipy you do not need an extra code generator tool. Service interface datatypes can be directly written in Python, either in the same file as your application or in separate Python files which are imported in your application. It's recommended to use a separate Python file for each datatype defined.
+With someipy you do not need an extra code generator tool. Service interface data types can be directly written in Python, either in the same file as your application or in separate Python files which are imported in your application. It's recommended to use a separate Python file for each datatype defined.
 
 ## Defining Datatypes in someipy
-As described above, custom SOME/IP datatypes can be directly defined and used in Python. All datatype related classes and functions can be imported from the `someipy.serialization` module. If you want to use a unsigned 8-bit datatype use:
+As described above, custom SOME/IP data types can be directly defined and used in Python. All datatype related classes and functions can be imported from the `someipy.serialization` module. If you want to use a unsigned 8-bit datatype use:
 
 ```python
 from someipy.serialization import Uint8
 ```
 
-All supported datatypes are listed in the table [at the end of the article](#someipy-datatypes).
+All supported data types are listed in the table [at the end of the article](#someipy-datatypes).
 
-If you want to send only a single value like an 8-bit datatype, you could directly use the basic datatypes like `Uint8`. However, in most real world use-cases you want to use structured datatypes (struct). For that purpose, someipy provides the `SomeIpPayload` class. By creating a class and inheriting from `SomeIpPayload` you can easily define your own structured type. The following example defines a `TemperatureMsg` to demonstrate the approach.
+If you want to send only a single value like an 8-bit datatype, you could directly use the basic datatypes like `Uint8`. However, in most real world use-cases you want to use structured data types (struct). For that purpose, someipy provides the `SomeIpPayload` class. By creating a class and inheriting from `SomeIpPayload` you can easily define your own structured type. The following example defines a `TemperatureMsg` to demonstrate the approach.
 
 ```python
 from dataclasses import dataclass
@@ -107,7 +107,7 @@ Notice that the `deserialize` call is packed into a try-except block in case mal
 
 ## Updating Values
 
-In the example above, the `timestamp`and `temperature` fields have been filled with the values `10` and `20.0`. However, the numeric literals are not directly assigned like `tmp_msg.timestamp = 10`. This shall never be done. The datatypes in someipy like `Uint64` support SOME/IP serialization while usual numeric literals like `10` do not. This would lead to an exception when calling the `serialize` method afterwards.
+In the example above, the `timestamp`and `temperature` fields have been filled with the values `10` and `20.0`. However, the numeric literals are not directly assigned like `tmp_msg.timestamp = 10`. This shall never be done. The data types in someipy like `Uint64` support SOME/IP serialization while usual numeric literals like `10` do not. This would lead to an exception when calling the `serialize` method afterwards.
 
 ```python
 # Create a new instance of TemperatureMsg and fill some dummy values
@@ -124,9 +124,9 @@ tmp_msg.timestamp.value = 10
 
 When accessing `value`, the numeric literal can be directly assigned.
 
-## Nesting Structured Datatypes
+## Nesting Structured Data Types
 
-someipy also allows nesting structured datatypes that derive from `SomeIpPayload`. We will add another struct `Version` containing a `major` and `minor` version field:
+someipy also allows nesting structured data types that derive from `SomeIpPayload`. We will add another struct `Version` containing a `major` and `minor` version field:
 
 ```python
 @dataclass
@@ -158,12 +158,12 @@ class TemparatureMsg(SomeIpPayload):
 ```
 
 
-## Supported SOME/IP datatypes in someipy
+## Supported SOME/IP Data Types in someipy
 <a id="someipy-datatypes"></a>
 
-The following table lists all supported SOME/IP datatypes and their respective classes in someipy. All the types are part of the module `someipy.serialization`.
+The following table lists all supported SOME/IP data types and their respective classes in someipy. All the types are part of the module `someipy.serialization`.
 
-For inquiries about support for additional datatypes, contact us at:
+For inquiries about support for additional data types, contact us at:
 > [someipy.package@gmail.com](mailto:someipy.package@gmail.com)  
 [LinkedIn](https://www.linkedin.com/in/ch-herzog/)
 
