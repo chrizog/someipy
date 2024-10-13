@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Service Discovery Configuration Parameters
-nav_order: 3
+nav_order: 10
 ---
 
 <style type="text/css">
