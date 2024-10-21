@@ -45,7 +45,7 @@ pip3 install someipy
 
 ## Example Applications
 
-In the directory [example_apps](./example_apps/), examples including explanations, can be found for using the someipy library. In [temperature_msg.py](./example_apps/temperature_msg.py), a payload interface "TemperatureMsg" is defined, which can be serialized and deserialized. In [send_events.py](./example_apps/send_events.py), the service discovery and two services are instantiated. The "TemperatureMsg" is serialized and used as the payload for sending events.
+In the directory [example_apps](./example_apps/), examples including explanations, can be found for using the someipy library.
 
 ## Supported Features, Limitations and Deviations
 
@@ -64,7 +64,6 @@ The library is still under development. The current major limitations and deviat
 - Configuration and load balancing options in SOME/IP SD messages are not supported.
 - TTL of Service Discovery entries is not checked yet.
 - The Initial Wait Phase and Repetition Phase of the Service Discovery specification are skipped. For simplification, the Main Phase is directly entered, i.e. SD Offer Entries are immediately sent cyclically.
-- Multiple Service Discovery entries are not packed together in a single SD message, which is sent via UDP.
 
 ### De-/Serialization
 

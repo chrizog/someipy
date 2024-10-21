@@ -1,15 +1,15 @@
 # Copyright (C) 2024 Christian H.
-# 
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
@@ -440,10 +440,10 @@ def serialize(obj) -> bytes:
     """
     Serializes an object into bytes by iterating over its attributes, excluding those starting with double underscores or underscores.
     For each attribute, it calls the `serialize` method of the attribute and appends the returned bytes to the output.
-    
+
     Parameters:
         obj (object): The object to be serialized.
-    
+
     Returns:
         bytes: The serialized representation of the object as bytes.
     """
@@ -460,7 +460,7 @@ def serialize(obj) -> bytes:
 
 class SomeIpPayload:
     """
-    A base class for defining a custom Some/IP payload ("structs"). It can be recursively nested, i.e. a SomeIpPayload object may contain other SomeIpPayload objects.
+    A base class for defining a custom SOME/IP payload ("structs"). It can be recursively nested, i.e. a SomeIpPayload object may contain other SomeIpPayload objects.
     """
 
     def __len__(self) -> int:
@@ -514,11 +514,13 @@ class SomeIpPayload:
             pos += type_length
         return self
 
+
 T = TypeVar("T")
+
 
 class SomeIpFixedSizeArray(Generic[T]):
     """
-    A datatype for a SOME/IP fixed size array. This type shall be used with someipy datatypes that support serialization and deserialization. 
+    A datatype for a SOME/IP fixed size array. This type shall be used with someipy datatypes that support serialization and deserialization.
     """
 
     data: List[T]
@@ -583,7 +585,7 @@ class SomeIpFixedSizeArray(Generic[T]):
         """
         Serialize the object into bytes by iterating over its attributes, excluding those starting with double underscores or underscores.
         For each attribute, it calls the `serialize` method of the attribute and appends the returned bytes to the output.
-        
+
         Returns:
             bytes: The serialized representation of the object as bytes.
         """

@@ -1,20 +1,25 @@
 # Copyright (C) 2024 Christian H.
-# 
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from dataclasses import dataclass
 from typing import List, Callable, Tuple, Dict
+
+from someipy._internal.method_result import MethodResult
+
+
+MethodHandler = Callable[[bytes, Tuple[str, int]], MethodResult]
 
 
 @dataclass
@@ -22,8 +27,9 @@ class Method:
     """
     Class representing a SOME/IP method with a method id and a method handler.
     """
+
     id: int
-    method_handler: Callable[[bytes, Tuple[str, int]], Tuple[bool, bytes]]
+    method_handler: MethodHandler
 
     def __eq__(self, __value: object) -> bool:
         return self.method_id == __value.method_id
@@ -34,6 +40,7 @@ class EventGroup:
     """
     Class representing a SOME/IP eventgroup with an eventgroup id and a list of event ids.
     """
+
     id: int
     event_ids: List[int]
 
@@ -43,6 +50,7 @@ class Service:
     """
     Class representing a SOME/IP service. A service has an id, major and minor version and 0 or more methods and/or eventgroups.
     """
+
     id: int
     major_version: int
     minor_version: int

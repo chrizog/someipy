@@ -4,7 +4,7 @@ import logging
 import sys
 from typing import Tuple
 
-from someipy import TransportLayerProtocol
+from someipy import TransportLayerProtocol, MethodResult, ReturnCode, MessageType
 from someipy.service import ServiceBuilder, Method
 from someipy.service_discovery import construct_service_discovery
 from someipy.server_service_instance import construct_server_service_instance
@@ -21,15 +21,12 @@ SAMPLE_INSTANCE_ID = 0x5678
 SAMPLE_METHOD_ID = 0x0123
 
 
-def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
-    # Process the data and return True/False indicating the success of the operation
-    # and the result of the method call in serialized form (bytes object)
-    # If False is returned an error message will be sent back to the client. In that case
-    # the payload can be an empty bytes-object, e.g. return False, b""
-
+def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> MethodResult:
     print(
         f"Received data: {' '.join(f'0x{b:02x}' for b in input_data)} from IP: {addr[0]} Port: {addr[1]}"
     )
+
+    result = MethodResult()
 
     try:
         # Deserialize the input data
@@ -37,13 +34,21 @@ def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> Tuple[bool, 
         addends.deserialize(input_data)
     except Exception as e:
         print(f"Error during deserialization: {e}")
-        return False, b""
+
+        # Set the return code to E_MALFORMED_MESSAGE and return
+        result.message_type = MessageType.RESPONSE
+        result.return_code = ReturnCode.E_MALFORMED_MESSAGE
+        return result
 
     # Perform the addition
     sum = Sum()
     sum.value = Sint32(addends.addend1.value + addends.addend2.value)
     print(f"Send back: {' '.join(f'0x{b:02x}' for b in sum.serialize())}")
-    return True, sum.serialize()
+
+    result.message_type = MessageType.RESPONSE
+    result.return_code = ReturnCode.E_OK
+    result.payload = sum.serialize()
+    return result
 
 
 async def main():

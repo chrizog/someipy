@@ -20,7 +20,8 @@ from someipy._internal.someip_message import SomeIpMessage
 from someipy.service import Service
 
 from someipy._internal.tcp_client_manager import TcpClientManager, TcpClientProtocol
-from someipy._internal.message_types import MessageType, ReturnCode
+from someipy._internal.message_types import MessageType
+from someipy._internal.return_codes import ReturnCode
 from someipy._internal.someip_sd_builder import (
     build_stop_offer_service_sd_header,
     build_subscribe_eventgroup_ack_entry,
@@ -168,7 +169,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             )
 
         if header.service_id != self._service.id:
-            get_logger(_logger_name).warn(
+            get_logger(_logger_name).warning(
                 f"Unknown service ID received from {addr}: ID 0x{header.service_id:04X}"
             )
             header_to_return.message_type = MessageType.RESPONSE.value
@@ -177,7 +178,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             return
 
         if header.method_id not in self._service.methods.keys():
-            get_logger(_logger_name).warn(
+            get_logger(_logger_name).warning(
                 f"Unknown method ID received from {addr}: ID 0x{header.method_id:04X}"
             )
             header_to_return.message_type = MessageType.RESPONSE.value
@@ -192,17 +193,15 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             and header.return_code == 0x00
         ):
             method_handler = self._service.methods[header.method_id].method_handler
-            success, payload_result = method_handler(message.payload, addr)
-            if not success:
-                header_to_return.message_type = MessageType.ERROR.value
-            else:
-                header_to_return.message_type = MessageType.RESPONSE.value
-                payload_to_return = payload_result
+            result = method_handler(message.payload, addr)
 
+            header_to_return.message_type = result.message_type.value
+            header_to_return.return_code = result.return_code.value
+            payload_to_return = result.payload
             send_response()
 
         else:
-            get_logger(_logger_name).warn(
+            get_logger(_logger_name).warning(
                 f"Unknown message type received from {addr}: Type 0x{header.message_type:04X}"
             )
 

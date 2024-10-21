@@ -11,3 +11,6 @@ from .client_service_instance import (
 )  # noqa: F401
 
 from ._internal.someip_message import SomeIpMessage  # noqa: F401
+from ._internal.method_result import MethodResult  # noqa: F401
+from ._internal.return_codes import ReturnCode  # noqa: F401
+from ._internal.message_types import MessageType  # noqa: F401
