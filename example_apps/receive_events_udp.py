@@ -30,7 +30,9 @@ def temperature_callback(someip_message: SomeIpMessage) -> None:
         None: This function does not return anything.
     """
     try:
-        print(f"Received {len(someip_message.payload)} bytes. Try to deserialize..")
+        print(
+            f"Received {len(someip_message.payload)} bytes for event {someip_message.header.method_id}. Try to deserialize.."
+        )
         temperature_msg = TemparatureMsg().deserialize(someip_message.payload)
         print(temperature_msg)
     except Exception as e:
@@ -69,7 +71,6 @@ async def main():
         ServiceBuilder()
         .with_service_id(SAMPLE_SERVICE_ID)
         .with_major_version(1)
-        .with_eventgroup(temperature_eventgroup)
         .build()
     )
 

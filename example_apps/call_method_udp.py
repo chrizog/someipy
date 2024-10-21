@@ -4,7 +4,7 @@ import ipaddress
 import logging
 import sys
 
-from someipy import TransportLayerProtocol
+from someipy import TransportLayerProtocol, MessageType, ReturnCode
 from someipy.client_service_instance import (
     MethodResult,
     construct_client_service_instance,
@@ -35,8 +35,6 @@ async def main():
             if i + 1 < len(sys.argv):
                 interface_ip = sys.argv[i + 1]
                 break
-
-    print(interface_ip)
 
     # Since the construction of the class ServiceDiscoveryProtocol is not trivial and would require an async __init__ function
     # use the construct_service_discovery function
@@ -69,26 +67,42 @@ async def main():
     try:
         while True:
             method_parameter = Addends(addend1=1, addend2=2)
-            method_success, method_result = await client_instance_addition.call_method(
-                SAMPLE_METHOD_ID, method_parameter.serialize()
-            )
-            if method_success == MethodResult.SUCCESS:
-                print(
-                    f"Received result for method: {' '.join(f'0x{b:02x}' for b in method_result)}"
+
+            try:
+                # You can query if the service offering the method was already found via SOME/IP service discovery
+                print(f"Service found: {client_instance_addition.service_found()}")
+
+                while not client_instance_addition.service_found():
+                    print("Waiting for service..")
+                    await asyncio.sleep(0.5)
+
+                # The call_method function can raise an error, e.g. if no TCP connection to the server can be established
+                # In case there is an application specific error in the server, the server still returns a response and the
+                # message_type and return_code are evaluated.
+                method_result = await client_instance_addition.call_method(
+                    SAMPLE_METHOD_ID, method_parameter.serialize()
                 )
-                try:
-                    sum = Sum().deserialize(method_result)
-                    print(f"Sum: {sum.value.value}")
-                except Exception as e:
-                    print(f"Error during deserialization of method's result: {e}")
-            elif method_success == MethodResult.ERROR:
-                print("Method call failed..")
-            elif method_success == MethodResult.TIMEOUT:
-                print("Method call timed out..")
-            elif method_success == MethodResult.SERVICE_NOT_FOUND:
-                print("Service not yet available..")
+
+                if method_result.message_type == MessageType.RESPONSE:
+                    print(
+                        f"Received result for method: {' '.join(f'0x{b:02x}' for b in method_result.payload)}"
+                    )
+                    if method_result.return_code == ReturnCode.E_OK:
+                        sum = Sum().deserialize(method_result.payload)
+                        print(f"Sum: {sum.value.value}")
+                    else:
+                        print(
+                            f"Method call returned an error: {method_result.return_code}"
+                        )
+                elif method_result.message_type == MessageType.ERROR:
+                    print("Server returned an error..")
+                    # In case the server includes an error message in the payload, it can be deserialized and printed
+
+            except Exception as e:
+                print(f"Error during method call: {e}")
 
             await asyncio.sleep(1)
+
     except asyncio.CancelledError:
         print("Shutdown..")
     finally:

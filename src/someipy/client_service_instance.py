@@ -19,6 +19,7 @@ import struct
 from typing import Iterable, Tuple, Callable, Set, List
 
 from someipy import Service
+from someipy._internal.method_result import MethodResult
 from someipy._internal.someip_data_processor import SomeipDataProcessor
 from someipy._internal.someip_sd_header import (
     SdService,
@@ -40,6 +41,7 @@ from someipy._internal.utils import (
 )
 from someipy._internal.logging import get_logger
 from someipy._internal.message_types import MessageType
+from someipy._internal.return_codes import ReturnCode
 from someipy._internal.someip_endpoint import (
     SomeipEndpoint,
     UDPSomeipEndpoint,
@@ -48,13 +50,6 @@ from someipy._internal.someip_endpoint import (
 from someipy._internal.tcp_connection import TcpConnection
 
 _logger_name = "client_service_instance"
-
-
-class MethodResult(Enum):
-    SUCCESS = 0
-    TIMEOUT = 1
-    SERVICE_NOT_FOUND = 2
-    ERROR = 3
 
 
 class ExpectedAck:
@@ -139,10 +134,10 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         """
         self._callback = callback
 
-    async def call_method(
-        self, method_id: int, payload: bytes
-    ) -> Tuple[MethodResult, bytes]:
-        get_logger(_logger_name).debug(f"Try to call method 0x{method_id:04X}")
+    def service_found(self) -> bool:
+        """
+        Returns whether the service instance represented by the ClientServiceInstance has been offered by a server and was found.
+        """
         has_service = False
         for s in self._found_services:
             if (
@@ -151,12 +146,33 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
             ):
                 has_service = True
                 break
+        return has_service
 
-        if not has_service:
-            get_logger(_logger_name).warn(
-                f"Do not execute method call. Service 0x{self._service.id:04X} with instance 0x{self._instance_id:04X} not found."
+    async def call_method(self, method_id: int, payload: bytes) -> MethodResult:
+        """
+        Calls a method on the service instance represented by the ClientServiceInstance.
+
+        Args:
+            method_id (int): The ID of the method to call.
+            payload (bytes): The payload to send with the method call.
+
+        Returns:
+            MethodResult: The result of the method call which can contain an error or a successfull result including the response payload.
+
+        Raises:
+            RuntimeError: If the TCP connection to the server cannot be established or if the server service has not been found yet.
+            asyncio.TimeoutError: If the method call times out, i.e. the server does not send back a response within one second.
+        """
+
+        get_logger(_logger_name).debug(f"Try to call method 0x{method_id:04X}")
+
+        if not self.service_found():
+            get_logger(_logger_name).warning(
+                f"Method 0x{method_id:04x} called, but service 0x{self._service.id:04X} with instance 0x{self._instance_id:04X} not found yet."
             )
-            return MethodResult.SERVICE_NOT_FOUND, b""
+            raise RuntimeError(
+                f"Method 0x{method_id:04x} called, but service 0x{self._service.id:04X} with instance 0x{self._instance_id:04X} not found yet."
+            )
 
         header = SomeIpHeader(
             service_id=self._service.id,
@@ -195,17 +211,21 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                 await asyncio.wait_for(self._tcp_connection_established_event.wait(), 2)
             except asyncio.TimeoutError:
                 get_logger(_logger_name).error(
-                    "Could not establish TCP connection for method call."
+                    f"Cannot establish TCP connection to {dst_address}:{dst_port}."
                 )
-                return MethodResult.ERROR, b""
+                raise RuntimeError(
+                    f"Cannot establish TCP connection to {dst_address}:{dst_port}."
+                )
 
             if self._tcp_connection.is_open():
                 self._tcp_connection.writer.write(someip_message.serialize())
             else:
                 get_logger(_logger_name).error(
-                    "TCP connection for method call is not open."
+                    f"TCP connection to {dst_address}:{dst_port} is not opened."
                 )
-                return MethodResult.ERROR, b""
+                raise RuntimeError(
+                    f"TCP connection to {dst_address}:{dst_port} is not opened."
+                )
 
         else:
             # In case of UDP, just send out the datagram and wait for the response
@@ -221,9 +241,9 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
             get_logger(_logger_name).error(
                 f"Waiting on response for method call 0x{method_id:04X} timed out."
             )
-            return MethodResult.TIMEOUT, b""
+            raise
 
-        return MethodResult.SUCCESS, self._method_call_future.result()
+        return self._method_call_future.result()
 
     def someip_message_received(
         self, someip_message: SomeIpMessage, addr: Tuple[str, int]
@@ -231,25 +251,22 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         if (
             someip_message.header.client_id == 0x00
             and someip_message.header.message_type == MessageType.NOTIFICATION.value
-            and someip_message.header.return_code == 0x00
+            and someip_message.header.return_code == ReturnCode.E_OK.value
         ):
             if self._callback is not None and self._subscription_active:
                 self._callback(someip_message)
-
-        if (
-            someip_message.header.message_type == MessageType.RESPONSE.value
-            and someip_message.header.return_code == 0x00
-        ):  # E_OK
-            if self._method_call_future is not None:
-                self._method_call_future.set_result(someip_message.payload)
                 return
 
         if (
-            someip_message.header.message_type == MessageType.ERROR.value
-            and someip_message.header.return_code == 0x01
-        ):  # E_NOT_OK
+            someip_message.header.message_type == MessageType.RESPONSE.value
+            or someip_message.header.message_type == MessageType.ERROR.value
+        ):
             if self._method_call_future is not None:
-                self._method_call_future.set_result(b"")
+                result = MethodResult()
+                result.message_type = MessageType(someip_message.header.message_type)
+                result.return_code = ReturnCode(someip_message.header.return_code)
+                result.payload = someip_message.payload
+                self._method_call_future.set_result(result)
                 return
 
     def subscribe_eventgroup(self, eventgroup_id: int):
