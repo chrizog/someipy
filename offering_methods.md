@@ -53,13 +53,22 @@ Details on defining data types can be found [here](/someipy/service_interface.ht
 
 ## Step 2: Implementing the Method Handler
 
-In the next step, we will implement the method handler. This function will receive a `bytes` object and a Tuple with the caller's IP address and port. The received `bytes` object will be deserialized into an `Addends` object. After calculating the sum, the result in the `Sum` will be serialized and returned. It is possible to return `True` or `False` from the method handler. In case of `False` the someipy library will send an error response message to the caller indicating that the method call had an internal error. This error handling is always application specific and is not related e.g. to data loss during transmission.
+In the next step, we will implement the method handler. This function will receive a `bytes` object and a Tuple with the caller's IP address and port. The received `bytes` object will be deserialized into an `Addends` object. After calculating the sum, the `Sum` object will be serialized and returned. The method handler has to return a `MethodResult` object which has the following members:
+
+- message_type (`MessageType`): The MessageType is an enum and can be either `MessageType.RESPONSE` or `MessageType.ERROR`. You can use `MessageType.ERROR` if you want to indicate an application specific error and send an explicit error message. Then you can also add a payload, e.g., with an error message. You could also send a `MessageType.RESPONSE` with an appropriate `ReturnCode`.
+- return_code (`ReturnCode`): The [`ReturnCode`]() enum reflects the return codes defined in the [SOME/IP protocol specification](https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPProtocol.pdf). For indicating a successful method call to the client, `E_OK` is returned. For indicating other errors, one of the other return codes has to be chosen.
+- payload (`bytes`): The payload to be returned is a `bytes` object, i.e. the method handler has to serialize structured messages used for the result. someipy will not internally serialize the data.
+
+For details about error handling in SOME/IP, read chapter 4.2.6 in the [SOME/IP protocol specification](https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPProtocol.pdf).
+
 
 ```python
-def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
+def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> MethodResult:
     print(
         f"Received data: {' '.join(f'0x{b:02x}' for b in input_data)} from IP: {addr[0]} Port: {addr[1]}"
     )
+
+    result = MethodResult()
 
     try:
         # Deserialize the input data
@@ -67,12 +76,21 @@ def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> Tuple[bool, 
         addends.deserialize(input_data)
     except Exception as e:
         print(f"Error during deserialization: {e}")
-        return False, b""
 
+        # Set the return code to E_MALFORMED_MESSAGE and return
+        result.message_type = MessageType.RESPONSE
+        result.return_code = ReturnCode.E_MALFORMED_MESSAGE
+        return result
+
+    # Perform the addition
     sum = Sum()
     sum.value = Sint32(addends.addend1.value + addends.addend2.value)
     print(f"Send back: {' '.join(f'0x{b:02x}' for b in sum.serialize())}")
-    return True, sum.serialize()
+
+    result.message_type = MessageType.RESPONSE
+    result.return_code = ReturnCode.E_OK
+    result.payload = sum.serialize()
+    return result
 ```
 
 ## Step 3: Definition of the Service

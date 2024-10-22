@@ -18,6 +18,10 @@ The project underwent a major maintenance shift in March 2022.
 
 Code changes to `master` that are *not* in the latest release:
 
+## Release v0.0.8
+- Improved method error handling
+- Update of method handler function signature
+
 ## Release v0.0.7
 - Improved integration testing
 - Bugfix: Handle subscribe acknowledge correctly
