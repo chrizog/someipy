@@ -234,9 +234,9 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
                 endpoint_to_str_int_tuple(self._found_services[0].service.endpoint),
             )
 
-        # After sending the method call wait for maximum one second
+        # After sending the method call wait for maximum three seconds
         try:
-            await asyncio.wait_for(self._method_call_future, 1.0)
+            await asyncio.wait_for(self._method_call_future, 3.0)
         except asyncio.TimeoutError:
             get_logger(_logger_name).error(
                 f"Waiting on response for method call 0x{method_id:04X} timed out."

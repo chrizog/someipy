@@ -69,6 +69,9 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
     _subscribers: Subscribers
     _offer_timer: SimplePeriodicTimer
 
+    _handler_tasks: set[asyncio.Task]
+    _is_running: bool
+
     def __init__(
         self,
         service: Service,
@@ -91,6 +94,9 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
 
         self._subscribers = Subscribers()
         self._offer_timer = None
+
+        self._handler_tasks = set()
+        self._is_running = True
 
     def send_event(self, event_group_id: int, event_id: int, payload: bytes) -> None:
         """
@@ -135,6 +141,18 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
                     endpoint_to_str_int_tuple(sub.endpoint),
                 )
 
+    async def _handle_method_call(self, method_handler, dst_addr, header_to_return):
+        result = await method_handler
+        header_to_return.message_type = result.message_type.value
+        header_to_return.return_code = result.return_code.value
+        payload_to_return = result.payload
+
+        # Update length in header to the correct length
+        header_to_return.length = 8 + len(payload_to_return)
+        self._someip_endpoint.sendto(
+            header_to_return.to_buffer() + payload_to_return, dst_addr
+        )
+
     def someip_message_received(
         self, message: SomeIpMessage, addr: Tuple[str, int]
     ) -> None:
@@ -155,6 +173,10 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             - The protocol and interface version are not checked yet.
             - If the message type in the received header is not a request, a warning is logged.
         """
+
+        if not self._is_running:
+            return
+
         header = message.header
         payload_to_return = bytes()
         header_to_return = header
@@ -193,12 +215,15 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             and header.return_code == 0x00
         ):
             method_handler = self._service.methods[header.method_id].method_handler
-            result = method_handler(message.payload, addr)
+            coro = method_handler(message.payload, addr)
 
-            header_to_return.message_type = result.message_type.value
-            header_to_return.return_code = result.return_code.value
-            payload_to_return = result.payload
-            send_response()
+            # If a method is called, do it in a separate task to allow for asynchronous processing inside
+            # method handlers
+            new_task = asyncio.create_task(
+                self._handle_method_call(coro, addr, header_to_return)
+            )
+            self._handler_tasks.add(new_task)
+            new_task.add_done_callback(self._handler_tasks.discard)
 
         else:
             get_logger(_logger_name).warning(
@@ -399,6 +424,16 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             [service_to_stop], session_id, reboot_flag
         )
         self._sd_sender.send_multicast(sd_header.to_buffer())
+
+        # Stop processing incoming calls
+        self._is_running = False
+
+        # Cancel all running handler tasks
+        for task in self._handler_tasks:
+            task.cancel()
+
+        # Wait for all tasks to be canceled
+        await asyncio.gather(*self._handler_tasks)
 
 
 async def construct_server_service_instance(
