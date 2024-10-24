@@ -21,7 +21,7 @@ SAMPLE_INSTANCE_ID = 0x5678
 SAMPLE_METHOD_ID = 0x0123
 
 
-def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> MethodResult:
+async def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> MethodResult:
     print(
         f"Received data: {' '.join(f'0x{b:02x}' for b in input_data)} from IP: {addr[0]} Port: {addr[1]}"
     )
