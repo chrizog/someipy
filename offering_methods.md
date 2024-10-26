@@ -61,9 +61,10 @@ In the next step, we will implement the method handler. This function will recei
 
 For details about error handling in SOME/IP, read chapter 4.2.6 in the [SOME/IP protocol specification](https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPProtocol.pdf).
 
+The method handler is an asynchronous function (`async def`). This allows for io-bound calls using `await` inside the method handler, e.g. calling another SOME/IP method or querying from a database, without blocking other tasks or method handlers from running.
 
 ```python
-def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> MethodResult:
+async def add_method_handler(input_data: bytes, addr: Tuple[str, int]) -> MethodResult:
     print(
         f"Received data: {' '.join(f'0x{b:02x}' for b in input_data)} from IP: {addr[0]} Port: {addr[1]}"
     )

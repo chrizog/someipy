@@ -18,6 +18,15 @@ The project underwent a major maintenance shift in March 2022.
 
 Code changes to `master` that are *not* in the latest release:
 
+## Release v0.0.10
+- Fix Python3.8 issue from version 0.0.9 (Set of asyncio.Task typing)
+- Properly handle major version (interface version) of services
+- Handle session ids and client ids
+- Allow multiple asynchronous method calls from a client and handle out of order method responses
+
+## Release v0.0.9
+- Enable asynchronous method handlers
+
 ## Release v0.0.8
 - Improved method error handling
 - Update of method handler function signature
