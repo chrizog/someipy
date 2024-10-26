@@ -62,11 +62,11 @@ public:
     }
 
     void offer() {
-        app_->offer_service(SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID);
+        app_->offer_service(SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID, 0x1);
     }
 
     void stop_offer() {
-        app_->stop_offer_service(SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID);
+        app_->stop_offer_service(SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID, 0x1);
     }
 
     void on_state(vsomeip::state_type_e _state) {

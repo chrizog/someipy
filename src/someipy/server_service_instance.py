@@ -14,7 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
-from typing import Tuple
+from typing import Set, Tuple
 
 from someipy._internal.someip_message import SomeIpMessage
 from someipy.service import Service
@@ -25,7 +25,6 @@ from someipy._internal.return_codes import ReturnCode
 from someipy._internal.someip_sd_builder import (
     build_stop_offer_service_sd_header,
     build_subscribe_eventgroup_ack_entry,
-    build_offer_service_sd_header,
     build_subscribe_eventgroup_ack_sd_header,
 )
 from someipy._internal.someip_header import SomeIpHeader
@@ -69,8 +68,10 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
     _subscribers: Subscribers
     _offer_timer: SimplePeriodicTimer
 
-    _handler_tasks: set[asyncio.Task]
+    _handler_tasks: Set[asyncio.Task]
     _is_running: bool
+
+    _session_id: int
 
     def __init__(
         self,
@@ -97,6 +98,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
 
         self._handler_tasks = set()
         self._is_running = True
+        self._session_id = 0  # Starts from 1 to 0xFFFF
 
     def send_event(self, event_group_id: int, event_id: int, payload: bytes) -> None:
         """
@@ -117,15 +119,18 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
 
         self._subscribers.update()
 
+        # Session ID is a 16-bit value and should be incremented for each method call starting from 1
+        self._session_id = (self._session_id + 1) % 0xFFFF
+
         length = 8 + len(payload)
         someip_header = SomeIpHeader(
             service_id=self._service.id,
             method_id=event_id,
             length=length,
-            client_id=0x00,  # TODO
-            session_id=0x01,  # TODO
-            protocol_version=1,  # TODO
-            interface_version=1,  # TODO
+            client_id=0x00,
+            session_id=self._session_id,
+            protocol_version=1,
+            interface_version=self._service.major_version,
             message_type=MessageType.NOTIFICATION.value,
             return_code=0x00,
         )
@@ -142,16 +147,21 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
                 )
 
     async def _handle_method_call(self, method_handler, dst_addr, header_to_return):
-        result = await method_handler
-        header_to_return.message_type = result.message_type.value
-        header_to_return.return_code = result.return_code.value
-        payload_to_return = result.payload
+        try:
+            result = await method_handler
+            header_to_return.message_type = result.message_type.value
+            header_to_return.return_code = result.return_code.value
+            payload_to_return = result.payload
 
-        # Update length in header to the correct length
-        header_to_return.length = 8 + len(payload_to_return)
-        self._someip_endpoint.sendto(
-            header_to_return.to_buffer() + payload_to_return, dst_addr
-        )
+            # Update length in header to the correct length
+            header_to_return.length = 8 + len(payload_to_return)
+            self._someip_endpoint.sendto(
+                header_to_return.to_buffer() + payload_to_return, dst_addr
+            )
+        except asyncio.CancelledError:
+            get_logger(_logger_name).debug(
+                f"Method call for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X} was canceled"
+            )
 
     def someip_message_received(
         self, message: SomeIpMessage, addr: Tuple[str, int]
@@ -199,6 +209,15 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             send_response()
             return
 
+        if header.interface_version != self._service.major_version:
+            get_logger(_logger_name).warning(
+                f"Unknown interface version received from {addr}: Version {header.interface_version}"
+            )
+            header_to_return.message_type = MessageType.RESPONSE.value
+            header_to_return.return_code = ReturnCode.E_WRONG_INTERFACE_VERSION.value
+            send_response()
+            return
+
         if header.method_id not in self._service.methods.keys():
             get_logger(_logger_name).warning(
                 f"Unknown method ID received from {addr}: ID 0x{header.method_id:04X}"
@@ -208,12 +227,16 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
             send_response()
             return
 
-        # TODO: Test for protocol and interface version
+        if header.message_type != MessageType.REQUEST.value:
+            get_logger(_logger_name).warning(
+                f"Unknown message type received from {addr}: Type 0x{header.message_type:04X}"
+            )
+            header_to_return.message_type = MessageType.RESPONSE.value
+            header_to_return.return_code = ReturnCode.E_WRONG_MESSAGE_TYPE.value
+            send_response()
+            return
 
-        if (
-            header.message_type == MessageType.REQUEST.value
-            and header.return_code == 0x00
-        ):
+        if header.return_code == 0x00:
             method_handler = self._service.methods[header.method_id].method_handler
             coro = method_handler(message.payload, addr)
 
@@ -227,7 +250,7 @@ class ServerServiceInstance(ServiceDiscoveryObserver):
 
         else:
             get_logger(_logger_name).warning(
-                f"Unknown message type received from {addr}: Type 0x{header.message_type:04X}"
+                f"Wrong return type received from {addr}: Type 0x{header.return_code:02X}"
             )
 
     def handle_find_service(self):

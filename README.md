@@ -56,7 +56,6 @@ The library is still under development. The current major limitations and deviat
 - Only unicast services are supported.
 - SOME/IP-TP is not supported.
 - IPv6 endpoints are not supported.
-- Session handling is supported only for SOME/IP-SD and not for SOME/IP messages transporting events or methods.
 - SOME/IP fields are not supported.
 
 ### Service Discovery
