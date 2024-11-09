@@ -61,5 +61,5 @@ The library is still under development. The current major limitations and deviat
 ### Service Discovery
 
 - Configuration and load balancing options in SOME/IP SD messages are not supported.
-- TTL of Service Discovery entries is not checked yet.
+- Stop subscribe message of notifications is not supported
 - The Initial Wait Phase and Repetition Phase of the Service Discovery specification are skipped. The Main Phase is directly entered, i.e. SD Offer Entries are immediately sent cyclically.
