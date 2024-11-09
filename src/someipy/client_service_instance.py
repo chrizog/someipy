@@ -34,6 +34,7 @@ from someipy._internal.service_discovery_abcs import (
     ServiceDiscoveryObserver,
     ServiceDiscoverySender,
 )
+from someipy._internal.store_with_timeout import StoreWithTimeout
 from someipy._internal.utils import (
     create_udp_socket,
     EndpointType,
@@ -60,17 +61,6 @@ class ExpectedAck:
         return self.eventgroup_id == value.eventgroup_id
 
 
-class FoundService:
-    service: SdService
-
-    def __init__(self, service: SdService) -> None:
-        self.service = service
-
-    def __eq__(self, __value: object) -> bool:
-        if isinstance(__value, FoundService):
-            return self.service == __value.service
-
-
 class ClientServiceInstance(ServiceDiscoveryObserver):
     _service: Service
     _instance_id: int
@@ -84,7 +74,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
     _expected_acks: List[ExpectedAck]
 
     _callback: Callable[[bytes], None]
-    _found_services: Iterable[FoundService]
+    _offered_services: StoreWithTimeout
     _subscription_active: bool
 
     _method_call_futures: Dict[int, asyncio.Future]
@@ -121,7 +111,8 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         self._tcp_connection_established_event = asyncio.Event()
         self._shutdown_requested = False
 
-        self._found_services = []
+        self._offered_services = StoreWithTimeout()
+
         self._subscription_active = False
         self._method_call_futures: Dict[int, asyncio.Future] = {}
         self._client_id = client_id
@@ -146,11 +137,8 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         Returns whether the service instance represented by the ClientServiceInstance has been offered by a server and was found.
         """
         has_service = False
-        for s in self._found_services:
-            if (
-                s.service.service_id == self._service.id
-                and s.service.instance_id == self._instance_id
-            ):
+        for s in self._offered_services:
+            if s.service_id == self._service.id and s.instance_id == self._instance_id:
                 has_service = True
                 break
         return has_service
@@ -201,8 +189,12 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         call_future = asyncio.get_running_loop().create_future()
         self._method_call_futures[session_id] = call_future
 
-        dst_address = str(self._found_services[0].service.endpoint[0])
-        dst_port = self._found_services[0].service.endpoint[1]
+        # At this point the service should be found since an exception would have been raised before
+        for s in self._offered_services:
+            if s.service_id == self._service.id and s.instance_id == self._instance_id:
+                dst_address = str(s.endpoint[0])
+                dst_port = s.endpoint[1]
+                break
 
         if self._protocol == TransportLayerProtocol.TCP:
             # In case of TCP, first try to connect to the TCP server
@@ -241,9 +233,19 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
 
         else:
             # In case of UDP, just send out the datagram and wait for the response
+            # At this point the service should be found since an exception would have been raised before
+            for s in self._offered_services:
+                if (
+                    s.service_id == self._service.id
+                    and s.instance_id == self._instance_id
+                ):
+                    dst_address = str(s.endpoint[0])
+                    dst_port = s.endpoint[1]
+                    break
+
             self._someip_endpoint.sendto(
                 someip_message.serialize(),
-                endpoint_to_str_int_tuple(self._found_services[0].service.endpoint),
+                (dst_address, dst_port),
             )
 
         # After sending the method call wait for maximum 10 seconds
@@ -348,6 +350,11 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         # Not needed in client service instance
         pass
 
+    def _timeout_of_offered_service(self, offered_service: SdService):
+        get_logger(_logger_name).debug(
+            f"Offered service timed out: service id 0x{offered_service.service_id:04x}, instance id 0x{offered_service.instance_id:04x}"
+        )
+
     def handle_offer_service(self, offered_service: SdService):
         if self._service.id != offered_service.service_id:
             return
@@ -367,8 +374,11 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
             # 0xFFFFFFFF allows to handle any minor version
             return
 
-        if FoundService(offered_service) not in self._found_services:
-            self._found_services.append(FoundService(offered_service))
+        asyncio.get_event_loop().create_task(
+            self._offered_services.add(
+                offered_service, self._timeout_of_offered_service
+            )
+        )
 
         if len(self._eventgroups_to_subscribe) == 0:
             return
@@ -424,10 +434,9 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
         if self._instance_id != offered_service.instance_id:
             return
 
-        # Remove the service from the found services
-        self._found_services = [
-            f for f in self._found_services if f.service != offered_service
-        ]
+        asyncio.get_event_loop().create_task(
+            self._offered_services.remove(offered_service)
+        )
 
         self._expected_acks = []
         self._subscription_active = False
