@@ -291,9 +291,9 @@ async def main():
         # ...
 ```
 
-## Starting the application
+## Starting The Application
 
-Finally it is time to start the application. If you are using Linux, make sure to join the multicast group for your network interface used for the service discovery. In our example we use 224.224.224.245 and the loopback interface. Make sure to adjust the command for your project. Otherwise it will not be possible for clients to subscribe to your SOME/IP service.
+If you are using Linux, make sure to join the multicast group for your network interface used for the service discovery before starting the applicaiton. In our example we use 224.224.224.245 and the loopback interface. Make sure to adjust the command for your project. Otherwise it will not be possible for clients to subscribe to your SOME/IP service.
 
 ```bash
 sudo ip addr add 224.224.224.245 dev lo autojoin
@@ -303,4 +303,19 @@ Afterwards start your app:
 
 ```bash
 python3 send_events_udp.py
+```
+
+## Running Two Applications On The Same Machine
+
+It is recommended two have one someipy application on a machine that communicates to other PCs or ECUs. But, in case you want to run two applications on the same machine, they should use different interfaces, i.e. bind to different IP addresses. If the two applications shall communicate locally, you can add another IP address to the localhost interface, e.g. 127.0.0.2.
+
+```bash
+sudo ip addr add 127.0.0.2/24 dev lo
+```
+
+Afterwards start one application working with 127.0.0.1 and the other application with 127.0.0.2:
+
+```bash
+python3 send_events_udp.py --interface_ip 127.0.0.1
+python3 receive_events_udp.py --interface_ip 127.0.0.2
 ```

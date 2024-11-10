@@ -168,7 +168,7 @@ For inquiries about support for additional data types, contact us at:
 [LinkedIn](https://www.linkedin.com/in/ch-herzog/)
 
 
-| SOME/IP Datatype          | someipy Datatype         |
+| SOME/IP Data Type         | someipy Data Type        |
 |---------------------------|--------------------------|
 | boolean                   | Uint8                    |
 | uint8                     | Uint8                    |
@@ -182,8 +182,8 @@ For inquiries about support for additional data types, contact us at:
 | float32                   | Float32                  |
 | float64                   | Float64                  |
 | structs                   | SomeIpPayload            |
-| fixed-length strings      | not supported            |
-| dynamic-length strings    | not supported            |
+| fixed-length strings      | SomeIpFixedSizeString    |
+| dynamic-length strings    | SomeIpDynamicSizeString  |
 | arrays (fixed-length)     | SomeIpFixedSizeArray     |
-| arrays (dynamic-length)   | not supported            |
+| arrays (dynamic-length)   | SomeIpDynamicSizeArray   |
 | union                     | not supported            |
