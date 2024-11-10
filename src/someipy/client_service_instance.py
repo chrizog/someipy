@@ -404,7 +404,7 @@ class ClientServiceInstance(ServiceDiscoveryObserver):
 
             get_logger(_logger_name).debug(
                 f"Send subscribe for instance 0x{self._instance_id:04X}, service: 0x{self._service.id:04X}, "
-                f"eventgroup ID: {eventgroup_to_subscribe} TTL: {self._ttl}, version: "
+                f"eventgroup ID: {eventgroup_to_subscribe} TTL: {self._ttl}, version: {self._service.major_version}, "
                 f"session ID: {session_id}"
             )
 
