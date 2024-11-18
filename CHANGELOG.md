@@ -18,6 +18,12 @@ The project underwent a major maintenance shift in March 2022.
 
 Code changes to `master` that are *not* in the latest release:
 
+## Release v1.0.0
+- Support dynamically sized arrays
+- Support fixed size strings
+- Support dynamically sized strings
+- Implement timeouts (ttl checks) for SD messages
+
 ## Release v0.0.10
 - Fix Python3.8 issue from version 0.0.9 (Set of asyncio.Task typing)
 - Properly handle major version (interface version) of services
