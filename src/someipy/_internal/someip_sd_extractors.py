@@ -21,12 +21,12 @@ from .someip_sd_header import (
     SdEventGroupEntry,
     SdServiceEntry,
 )
-from .someip_sd_option import SdIPV4EndpointOption, SdOptionCommon, SdOptionType
+from .someip_sd_option import SdIPV4EndpointOption, SdOptionType, SdOptionInterface
 
 
 def option_runs(
     entry: Union[SdServiceEntry, SdEventGroupEntry], sd_message: SomeIpSdHeader
-) -> Iterable[Union[SdIPV4EndpointOption, SdOptionCommon]]:
+) -> Iterable[SdOptionInterface]:
     """This function performs the option runs for SD entries. It uses the
     start index and the number of options to iterate over the options in two runs"""
 
@@ -52,7 +52,7 @@ def extract_offered_services(someip_sd_header: SomeIpSdHeader) -> List[SdService
 
         options = option_runs(e, someip_sd_header)
         for option in options:
-            if option.sd_option_common.type == SdOptionType.IPV4_ENDPOINT:
+            if option.get_sd_option_type() == SdOptionType.IPV4_ENDPOINT:
                 endpoint = (
                     option.ipv4_address,
                     option.port,
@@ -68,7 +68,7 @@ def extract_offered_services(someip_sd_header: SomeIpSdHeader) -> List[SdService
                     protocol=protocol,
                 )
                 result.append(sd_offered_service)
-
+                
     return result
 
 
