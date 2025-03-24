@@ -46,7 +46,7 @@ def extract_offered_services(someip_sd_header: SomeIpSdHeader) -> List[SdService
     service_offers = [
         o
         for o in someip_sd_header.service_entries
-        if o.sd_entry.type == SdEntryType.OFFER_SERVICE
+        if o.sd_entry.type == SdEntryType.OFFER_SERVICE and o.sd_entry.ttl != 0x00
     ]
     for e in service_offers:
 

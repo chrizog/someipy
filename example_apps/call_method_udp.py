@@ -1,17 +1,19 @@
 import asyncio
-import datetime
 import ipaddress
 import logging
 import sys
 
-from someipy import TransportLayerProtocol, MessageType, ReturnCode
+from someipy import (
+    TransportLayerProtocol,
+    MessageType,
+    ReturnCode,
+    connect_to_someipy_daemon,
+)
 from someipy.client_service_instance import (
-    MethodResult,
     construct_client_service_instance,
 )
 from someipy.service import ServiceBuilder
-from someipy.service_discovery import construct_service_discovery
-from someipy.logging import set_someipy_log_level
+from someipy.someipy_logging import set_someipy_log_level
 from addition_method_parameters import Addends, Sum
 
 SD_MULTICAST_GROUP = "224.224.224.245"
@@ -36,12 +38,7 @@ async def main():
                 interface_ip = sys.argv[i + 1]
                 break
 
-    # Since the construction of the class ServiceDiscoveryProtocol is not trivial and would require an async __init__ function
-    # use the construct_service_discovery function
-    # The local interface IP address needs to be passed so that the src-address of all SD UDP packets is correctly set
-    service_discovery = await construct_service_discovery(
-        SD_MULTICAST_GROUP, SD_PORT, interface_ip
-    )
+    someipy_daemon = await connect_to_someipy_daemon()
 
     addition_service = (
         ServiceBuilder()
@@ -52,30 +49,29 @@ async def main():
 
     # For calling methods construct a ClientServiceInstance
     client_instance_addition = await construct_client_service_instance(
+        daemon=someipy_daemon,
         service=addition_service,
         instance_id=SAMPLE_INSTANCE_ID,
         endpoint=(ipaddress.IPv4Address(interface_ip), 3002),
         ttl=5,
-        sd_sender=service_discovery,
         protocol=TransportLayerProtocol.UDP,
     )
 
-    # The service instance has to be attached always to the ServiceDiscoveryProtocol object, so that the service instance
-    # is notified by the ServiceDiscoveryProtocol about e.g. subscriptions or offers from other ECUs
-    service_discovery.attach(client_instance_addition)
+    # await service_instance.find_service(timeout=10)
+    # Static config mit daemon=None
+    # 5. instance.set_static_destination_configuration((ip, port))
+
+    method_parameter = Addends(addend1=1, addend2=2)
 
     try:
+
+        while not await client_instance_addition.service_found():
+            print("Waiting for service..")
+            await asyncio.sleep(0.5)
+
         while True:
-            method_parameter = Addends(addend1=1, addend2=2)
 
             try:
-                # You can query if the service offering the method was already found via SOME/IP service discovery
-                print(f"Service found: {client_instance_addition.service_found()}")
-
-                while not client_instance_addition.service_found():
-                    print("Waiting for service..")
-                    await asyncio.sleep(0.5)
-
                 # The call_method function can raise an error, e.g. if no TCP connection to the server can be established
                 # In case there is an application specific error in the server, the server still returns a response and the
                 # message_type and return_code are evaluated.
@@ -106,11 +102,10 @@ async def main():
     except asyncio.CancelledError:
         print("Shutdown..")
     finally:
-        print("Service Discovery close..")
-        service_discovery.close()
-
         print("Shutdown service instance..")
         await client_instance_addition.close()
+
+        await someipy_daemon.disconnect_from_daemon()
 
     print("End main task..")
 
