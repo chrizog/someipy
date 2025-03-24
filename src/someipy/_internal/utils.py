@@ -97,14 +97,27 @@ def endpoint_to_str_int_tuple(endpoint: EndpointType) -> Tuple[str, int]:
 class DatagramAdapter(asyncio.DatagramProtocol):
     """An adapter class which allows to forward the calls of of asyncio.DatagramProtocol to an injected target class"""
 
-    def __init__(self, target):
+    def __init__(
+        self,
+        target=None,
+        datagram_received_callback=None,
+        connection_lost_callback=None,
+    ):
         self.target = target
+        self.datagram_received_callback = datagram_received_callback
+        self.connection_lost_callback = connection_lost_callback
 
     def datagram_received(self, data: bytes, addr: Tuple[Union[str, Any], int]) -> None:
-        self.target.datagram_received(data, addr)
+        if self.target != None:
+            self.target.datagram_received(data, addr)
+        elif self.datagram_received_callback != None:
+            self.datagram_received_callback(data, addr)
 
     def connection_lost(self, exc: Exception) -> None:
-        self.target.connection_lost(exc)
+        if self.target != None:
+            self.target.connection_lost(exc)
+        elif self.connection_lost_callback != None:
+            self.connection_lost_callback(exc)
 
 
 def set_bit_at_position(number: int, position: int, value: bool) -> int:

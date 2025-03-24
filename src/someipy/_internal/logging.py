@@ -15,7 +15,7 @@
 
 import logging
 import sys
-from someipy.logging import get_someipy_log_level
+from someipy.someipy_logging import get_someipy_log_level
 
 
 def setup_console_handler(

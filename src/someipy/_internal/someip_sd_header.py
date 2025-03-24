@@ -14,9 +14,10 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import ipaddress
+import json
 import struct
 from enum import Enum
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import List, Tuple, TypeVar, Union
 
 from someipy._internal.someip_sd_option import (
@@ -199,6 +200,36 @@ class SdService:
                 self.protocol,
             )
         )
+
+    def to_json(self):
+        output_dict = {
+            "service_id": self.service_id,
+            "instance_id": self.instance_id,
+            "major_version": self.major_version,
+            "minor_version": self.minor_version,
+            "ttl": self.ttl,
+            "endpoint_ip": str(self.endpoint[0]),
+            "endpoint_port": self.endpoint[1],
+            "protocol": self.protocol.value,
+        }
+        return json.dumps(output_dict)
+
+    @classmethod
+    def from_json(cls: _T, json_str: str) -> _T:
+        json_dict = json.loads(json_str)
+        o = cls(
+            int(json_dict["service_id"]),
+            int(json_dict["instance_id"]),
+            int(json_dict["major_version"]),
+            int(json_dict["minor_version"]),
+            int(json_dict["ttl"]),
+            (
+                ipaddress.IPv4Address(json_dict["endpoint_ip"]),
+                json_dict["endpoint_port"],
+            ),
+            TransportLayerProtocol(json_dict["protocol"]),
+        )
+        return o
 
 
 @dataclass

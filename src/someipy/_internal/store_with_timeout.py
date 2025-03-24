@@ -51,16 +51,16 @@ class StoreWithTimeout:
 
     async def remove(self, object_to_remove: ObjectWithTtl):
         wrapper = self.ObjectWithTtlWrapper(object_to_remove)
-        if wrapper in self.values:
-            for value in self.values:
-                if value == wrapper:
-                    value.active = False
-                    value.timeout_task.cancel()
-                    try:
-                        await value.timeout_task
-                    except asyncio.CancelledError:
-                        pass
-                    break
+
+        for value in self.values:
+            if value == wrapper:
+                value.active = False
+                value.timeout_task.cancel()
+                try:
+                    await value.timeout_task
+                except asyncio.CancelledError:
+                    pass
+                break
 
     async def clear(self):
         while len(self.values) > 0:
