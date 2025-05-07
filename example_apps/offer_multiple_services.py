@@ -10,7 +10,7 @@ from someipy import (
     construct_server_service_instance,
 )
 from someipy.service_discovery import construct_service_discovery
-from someipy.logging import set_someipy_log_level
+from someipy.someipy_logging import set_someipy_log_level
 from someipy.serialization import Uint8, Uint64, Float32
 from temperature_msg import TemparatureMsg
 

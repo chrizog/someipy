@@ -4,14 +4,14 @@ import logging
 import sys
 
 from someipy import ServiceBuilder, EventGroup, TransportLayerProtocol, SomeIpMessage
-from someipy.service_discovery import construct_service_discovery
+from someipy import connect_to_someipy_daemon
 from someipy.client_service_instance import construct_client_service_instance
-from someipy.logging import set_someipy_log_level
+from someipy.someipy_logging import set_someipy_log_level
 from temperature_msg import TemparatureMsg
 
 SD_MULTICAST_GROUP = "224.224.224.245"
 SD_PORT = 30490
-DEFAULT_INTERFACE_IP = "127.0.0.1"  # Default IP if not provided
+DEFAULT_INTERFACE_IP = "127.0.0.2"  # Default IP if not provided
 
 SAMPLE_SERVICE_ID = 0x1234
 SAMPLE_INSTANCE_ID = 0x5678
@@ -40,6 +40,7 @@ def temperature_callback(someip_message: SomeIpMessage) -> None:
 
 
 async def main():
+    asyncio.get_running_loop().set_debug(True)
     # It's possible to configure the logging level of the someipy library, e.g. logging.INFO, logging.DEBUG, logging.WARN, ..
     set_someipy_log_level(logging.DEBUG)
 
@@ -51,12 +52,7 @@ async def main():
                 interface_ip = sys.argv[i + 1]
                 break
 
-    # Since the construction of the class ServiceDiscoveryProtocol is not trivial and would require an async __init__ function
-    # use the construct_service_discovery function
-    # The local interface IP address needs to be passed so that the src-address of all SD UDP packets is correctly set
-    service_discovery = await construct_service_discovery(
-        SD_MULTICAST_GROUP, SD_PORT, interface_ip
-    )
+    someipy_daemon = await connect_to_someipy_daemon()
 
     # 1. For receiving events use a ClientServiceInstance. Since the construction of the class ClientServiceInstance is not
     # trivial and would require an async __init__ function use the construct_client_service_instance function
@@ -75,11 +71,10 @@ async def main():
     )
 
     service_instance_temperature = await construct_client_service_instance(
+        daemon=someipy_daemon,
         service=temperature_service,
         instance_id=SAMPLE_INSTANCE_ID,
         endpoint=(ipaddress.IPv4Address(interface_ip), 3002),
-        ttl=5,
-        sd_sender=service_discovery,
         protocol=TransportLayerProtocol.UDP,
     )
 
@@ -89,12 +84,7 @@ async def main():
     service_instance_temperature.register_callback(temperature_callback)
 
     # In order to subscribe to an event group, just pass the event group ID to the subscribe_eventgroup method
-    service_instance_temperature.subscribe_eventgroup(SAMPLE_EVENTGROUP_ID)
-
-    # The service instance has to be attached always to the ServiceDiscoveryProtocol object, so that the service instance
-    # is notified by the ServiceDiscoveryProtocol about e.g. offers from other ECUs and can also subscribe to offered
-    # services
-    service_discovery.attach(service_instance_temperature)
+    service_instance_temperature.subscribe_eventgroup(SAMPLE_EVENTGROUP_ID, 5.0)
 
     try:
         # Keep the task alive
@@ -102,14 +92,18 @@ async def main():
     except asyncio.CancelledError as e:
         print("Shutdown..")
     finally:
-        print("Service Discovery close..")
-        service_discovery.close()
 
         print("Shutdown service instance..")
         await service_instance_temperature.close()
 
+        await someipy_daemon.disconnect_from_daemon()
+
     print("End main task..")
+    for t in asyncio.all_tasks():
+        print("----")
+        print(t)
 
 
 if __name__ == "__main__":
+
     asyncio.run(main())

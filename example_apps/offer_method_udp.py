@@ -5,15 +5,14 @@ import sys
 from typing import Tuple
 
 from someipy import TransportLayerProtocol, MethodResult, ReturnCode, MessageType
+from someipy import connect_to_someipy_daemon
 from someipy.service import ServiceBuilder, Method
 from someipy.service_discovery import construct_service_discovery
 from someipy.server_service_instance import construct_server_service_instance
-from someipy.logging import set_someipy_log_level
+from someipy.someipy_logging import set_someipy_log_level
 from someipy.serialization import Sint32
 from addition_method_parameters import Addends, Sum
 
-SD_MULTICAST_GROUP = "224.224.224.245"
-SD_PORT = 30490
 DEFAULT_INTERFACE_IP = "127.0.0.1"  # Default IP if not provided
 
 SAMPLE_SERVICE_ID = 0x1234
@@ -64,15 +63,9 @@ async def main():
                 interface_ip = sys.argv[i + 1]
                 break
 
-    # Since the construction of the class ServiceDiscoveryProtocol is not trivial and would require an async __init__ function
-    # use the construct_service_discovery function
-    # The local interface IP address needs to be passed so that the src-address of all SD UDP packets is correctly set
-    service_discovery = await construct_service_discovery(
-        SD_MULTICAST_GROUP, SD_PORT, interface_ip
-    )
+    someipy_daemon = await connect_to_someipy_daemon()
 
     addition_method = Method(id=SAMPLE_METHOD_ID, method_handler=add_method_handler)
-
     addition_service = (
         ServiceBuilder()
         .with_service_id(SAMPLE_SERVICE_ID)
@@ -90,22 +83,16 @@ async def main():
             3000,
         ),  # src IP and port of the service
         ttl=5,
-        sd_sender=service_discovery,
+        daemon=someipy_daemon,
         cyclic_offer_delay_ms=2000,
         protocol=TransportLayerProtocol.UDP,
     )
 
-    # The service instance has to be attached always to the ServiceDiscoveryProtocol object, so that the service instance
-    # is notified by the ServiceDiscoveryProtocol about e.g. subscriptions from other ECUs
-    service_discovery.attach(service_instance_addition)
-
-    # ..it's also possible to construct another ServerServiceInstance and attach it to service_discovery as well
-
-    # After constructing and attaching ServerServiceInstances to the ServiceDiscoveryProtocol object the
-    # start_offer method has to be called. This will start an internal timer, which will periodically send
-    # Offer service entries with a period of "cyclic_offer_delay_ms" which has been passed above
+    # After constructing ServerServiceInstances the start_offer method has to be called.
+    # This will start an internal timer, which will periodically send
+    # Offer service entries with a period of "cyclic_offer_delay_ms"
     print("Start offering service..")
-    service_instance_addition.start_offer()
+    await service_instance_addition.start_offer()
 
     try:
         # Keep the task alive
@@ -114,8 +101,8 @@ async def main():
         print("Stop offering service..")
         await service_instance_addition.stop_offer()
     finally:
-        print("Service Discovery close..")
-        service_discovery.close()
+        print("Disconnect from daemon..")
+        await someipy_daemon.disconnect_from_daemon()
 
     print("End main task..")
 

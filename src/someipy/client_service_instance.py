@@ -17,6 +17,7 @@ import asyncio
 from typing import Dict, Tuple, Callable
 
 from someipy import Service
+from someipy._internal.daemon_client_abcs import ClientInstanceInterface
 from someipy._internal.method_result import MethodResult
 from someipy._internal.someip_data_processor import SomeipDataProcessor
 from someipy._internal.someip_sd_header import (
@@ -28,6 +29,11 @@ from someipy._internal.someip_header import (
 )
 from someipy._internal.someipy_daemon_client import SomeIpDaemonClient
 from someipy._internal.store_with_timeout import StoreWithTimeout
+from someipy._internal.uds_messages import (
+    SubscribeEventgroupReadyRequest,
+    SubscribeEventgroupReadyResponse,
+    create_uds_message,
+)
 from someipy._internal.utils import (
     create_udp_socket,
     EndpointType,
@@ -45,7 +51,7 @@ from someipy._internal.tcp_connection import TcpConnection
 _logger_name = "client_service_instance"
 
 
-class ClientServiceInstance:
+class ClientServiceInstance(ClientInstanceInterface):
 
     def __init__(
         self,
@@ -54,7 +60,6 @@ class ClientServiceInstance:
         endpoint: EndpointType,
         protocol: TransportLayerProtocol,
         someip_endpoint: SomeipEndpoint,
-        ttl: int = 0,
         client_id: int = 0,
         daemon: SomeIpDaemonClient = None,
     ):
@@ -63,11 +68,10 @@ class ClientServiceInstance:
         self._endpoint: EndpointType = endpoint
         self._protocol: TransportLayerProtocol = protocol
         self._someip_endpoint: SomeipEndpoint = someip_endpoint
-        self._ttl: int = ttl
 
         self._eventgroups_to_subscribe = set()
-        self._expected_acks = []
-        self._callback: Callable[[bytes], None] = None
+
+        self._event_callback: Callable[[SomeIpMessage], None] = None
 
         self._tcp_connection: TcpConnection = None
 
@@ -85,6 +89,19 @@ class ClientServiceInstance:
         self._daemon = daemon
 
         self._session_id: int = 0  # Starts from 1 to 0xFFFF
+
+    def register_callback(self, callback: Callable[[SomeIpMessage], None]) -> None:
+        """
+        Register a callback function to be called when a SOME/IP event is received.
+
+        Args:
+            callback (Callable[[SomeIpMessage], None]): The callback function to be registered.
+                This function should take a SomeIpMessage object as its only argument and return None.
+
+        Returns:
+            None
+        """
+        self._event_callback = callback
 
     async def service_found(self) -> bool:
         """
@@ -122,7 +139,7 @@ class ClientServiceInstance:
 
     async def find_service(self, timeout: float = 10.0) -> bool:
         """
-        Finds the service instance represented by the ClientServiceInstance.
+        Finds the service instDaemonClientSubjectance represented by the ClientServiceInstance.
 
         Args:
             timeout (float, optional): The timeout for the service to be found. Defaults to 10.0 seconds.
@@ -250,17 +267,15 @@ class ClientServiceInstance:
         self, someip_message: SomeIpMessage, addr: Tuple[str, int]
     ) -> None:
 
-        # Handling a notification message
-        """
         if (
             someip_message.header.client_id == 0x00
             and someip_message.header.message_type == MessageType.NOTIFICATION.value
             and someip_message.header.return_code == ReturnCode.E_OK.value
         ):
-            if self._callback is not None and self._subscription_active:
-                self._callback(someip_message)
+            if self._event_callback is not None:
+                self._event_callback(someip_message)
                 return
-        """
+
         # Handling a response message
         if (
             someip_message.header.message_type == MessageType.RESPONSE.value
@@ -289,46 +304,182 @@ class ClientServiceInstance:
                 result.payload = someip_message.payload
                 call_future.set_result(result)
 
-    def subscribe_eventgroup(self, eventgroup_id: int):
-        """
-        Adds an event group to the list of event groups to subscribe to.
-
-        Args:
-            eventgroup_id (int): The ID of the event group to subscribe to.
-
-        Returns:
-            None
-
-        Raises:
-            None
-
-        Notes:
-            - If the event group ID is already in the subscription list, a debug log message is printed.
-        """
-        pass
-        """
-        if eventgroup_id in self._eventgroups_to_subscribe:
-            get_logger(_logger_name).debug(
-                f"Eventgroup ID {eventgroup_id} is already in subscription list."
+    def subscribe_eventgroup(self, eventgroup_id: int, ttl_subscription_seconds: int):
+        eventgroups = [x[0] for x in self._service.eventgroups]
+        if eventgroup_id not in eventgroups:
+            self._eventgroups_to_subscribe.add(
+                (eventgroup_id, ttl_subscription_seconds)
             )
-        self._eventgroups_to_subscribe.add(eventgroup_id)
+
+        if self._daemon:
+            self._daemon._subscribe_to_eventgroup(
+                self._service.id,
+                self._instance_id,
+                self._service.major_version,
+                str(self._endpoint[0]),
+                self._endpoint[1],
+                self._protocol,
+                eventgroup_id,
+                ttl_subscription_seconds,
+            )
+
+    def unsubscribe_eventgroup(self, eventgroup_id: int):
+        if self._daemon:
+            sd_service = SdService(
+                service_id=self._service.id,
+                instance_id=self._instance_id,
+                major_version=self._service.major_version,
+                minor_version=self._service.minor_version,
+                ttl=self._ttl,
+                endpoint=self._endpoint,
+                protocol=self._protocol,
+            )
+
+            self._daemon._unsubscribe_from_eventgroup(sd_service, eventgroup_id)
+
+    def subscribe_ready_request(self, message: SubscribeEventgroupReadyRequest):
+        """
+        1. Check if service id, instance id, major version, protocol and eventgroup id match
+        2. If UDP is requested, then there is nothing to do -> send back a subscribe_ready response with success
+        3. If TCP is requuested, first check if the TCP connection is already established
+        4. If yes, send back a subscribe_ready response with success
+        5. If not, then open the TCP connection and send back a subscribe_ready response with success afterwards
+        6. If the TCP connection cannot be established, send back a subscribe_ready response with error
+        """
+        print(f"Received subscribe_ready request in client: {message}")
+        service_id = message["service_id"]
+        instance_id = message["instance_id"]
+        major_version = message["major_version"]
+        protocol = TransportLayerProtocol(message["protocol"])
+        eventgroup_id = message["eventgroup_id"]
+
+        eventgroup_ids_to_subscribe = [x[0] for x in self._eventgroups_to_subscribe]
+
+        if (
+            service_id != self._service.id
+            or instance_id != self._instance_id
+            or major_version != self._service.major_version
+            or protocol != self._protocol
+            or eventgroup_id not in eventgroup_ids_to_subscribe
+        ):
+            print("No match found")
+            return
+
+        if protocol == TransportLayerProtocol.UDP:
+            print("Send back response")
+
+            response: SubscribeEventgroupReadyResponse = create_uds_message(
+                SubscribeEventgroupReadyResponse,
+                success=True,
+                service_id=service_id,
+                instance_id=instance_id,
+                major_version=major_version,
+                client_endpoint_ip=str(self._endpoint[0]),
+                client_endpoint_port=self._endpoint[1],
+                eventgroup_id=eventgroup_id,
+                ttl_subscription=message["ttl_subscription"],
+                protocol=protocol.value,
+                service_endpoint_ip=message["service_endpoint_ip"],
+            )
+            self._daemon.transmit_message_to_daemon(response)
+
+        elif protocol == TransportLayerProtocol.TCP:
+            if (
+                self._tcp_connection is not None
+                and self._tcp_connection.is_open()
+                and self._tcp_connection.remote_ip == message["service_endpoint_ip"]
+                and self._tcp_connection.remote_port == message["service_endpoint_port"]
+            ):
+
+                print("TCP connection already established")
+                response: SubscribeEventgroupReadyResponse = create_uds_message(
+                    SubscribeEventgroupReadyResponse,
+                    success=True,
+                    service_id=service_id,
+                    instance_id=instance_id,
+                    major_version=major_version,
+                    client_endpoint_ip=str(self._endpoint[0]),
+                    client_endpoint_port=self._endpoint[1],
+                    eventgroup_id=eventgroup_id,
+                    ttl_subscription=message["ttl_subscription"],
+                    protocol=protocol.value,
+                    service_endpoint_ip=message["service_endpoint_ip"],
+                )
+                self._daemon.transmit_message_to_daemon(response)
+
+            else:
+                if self._tcp_connection is None or not self._tcp_connection.is_open():
+                    print("TCP connection not established yet")
+                    # Open the TCP connection
+                    asyncio.create_task(
+                        self.setup_tcp_connection_and_respond(
+                            str(self._endpoint[0]),
+                            self._endpoint[1],
+                            str(message["service_endpoint_ip"]),
+                            message["service_endpoint_port"],
+                            message,
+                        )
+                    )
+
+    async def setup_tcp_connection_and_respond(
+        self,
+        src_ip: str,
+        src_port: int,
+        dst_ip: str,
+        dst_port: int,
+        request: SubscribeEventgroupReadyRequest,
+    ):
+        """
+        Setup a TCP connection to the server and respond to the subscribe_ready request.
         """
 
-    def stop_subscribe_eventgroup(self, eventgroup_id: int):
-        """
-        Stops subscribing to an event group. Not implemented yet.
+        def send_response(success: bool):
+            response: SubscribeEventgroupReadyResponse = create_uds_message(
+                SubscribeEventgroupReadyResponse,
+                success=success,
+                service_id=self._service.id,
+                instance_id=self._instance_id,
+                major_version=self._service.major_version,
+                client_endpoint_ip=src_ip,
+                client_endpoint_port=src_port,
+                eventgroup_id=request["eventgroup_id"],
+                ttl_subscription=request["ttl_subscription"],
+                protocol=self._protocol.value,
+                service_endpoint_ip=dst_ip,
+            )
+            self._daemon.transmit_message_to_daemon(response)
 
-        Args:
-            eventgroup_id (int): The ID of the event group to stop subscribing to.
+        if self._tcp_task is None:
+            get_logger(_logger_name).debug(
+                f"Create new TCP task for client of 0x{self._instance_id:04X}, 0x{self._service.id:04X}"
+            )
+            self._tcp_task = asyncio.create_task(
+                self.setup_tcp_connection(
+                    src_ip,
+                    src_port,
+                    dst_ip,
+                    dst_port,
+                )
+            )
 
-        Raises:
-            NotImplementedError: This method is not yet implemented.
+            try:
+                # Wait for two seconds until the connection is established, otherwise return an error
+                await asyncio.wait_for(self._tcp_connection_established_event.wait(), 2)
+            except asyncio.TimeoutError:
+                error_msg = f"Cannot establish TCP connection to {dst_ip}:{dst_port}."
+                get_logger(_logger_name).error(error_msg)
+                send_response(False)
+                return
 
-        Notes:
-            - This method is currently not implemented and raises a `NotImplementedError`.
-        """
-        # TODO: Implement StopSubscribe
-        raise NotImplementedError
+            if self._tcp_connection.is_open():
+                send_response(True)
+                return
+
+            else:
+                error_msg = f"TCP connection to {dst_ip}:{dst_port} is not opened."
+                get_logger(_logger_name).error(error_msg)
+                send_response(False)
+                return
 
     async def setup_tcp_connection(
         self, src_ip: str, src_port: int, dst_ip: str, dst_port: int
@@ -399,13 +550,15 @@ class ClientServiceInstance:
             except asyncio.CancelledError:
                 get_logger(_logger_name).debug("TCP task is cancelled.")
 
+        if id(self) in self._daemon._client_service_instances:
+            del self._daemon._client_service_instances[id(self)]
+
 
 async def construct_client_service_instance(
     daemon: SomeIpDaemonClient,
     service: Service,
     instance_id: int,
     endpoint: EndpointType,
-    ttl: int = 0,
     protocol=TransportLayerProtocol.UDP,
     client_id: int = 0,
 ) -> ClientServiceInstance:
@@ -442,10 +595,11 @@ async def construct_client_service_instance(
         endpoint,
         protocol,
         udp_endpoint,
-        ttl,
         client_id,
         daemon,
     )
+
+    daemon._client_service_instances[id(client_instance)] = client_instance
 
     if udp_endpoint:
         udp_endpoint.set_someip_callback(client_instance.someip_message_received)

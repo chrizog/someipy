@@ -74,3 +74,7 @@ class Subscribers:
     @property
     def subscribers(self) -> List[EventGroupSubscriber]:
         return self._subscribers
+
+    @property
+    def has_subscribers(self) -> bool:
+        return len(self._subscribers) > 0
