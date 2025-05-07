@@ -28,13 +28,13 @@ class StoreWithTimeout:
             await asyncio.sleep(self.value.ttl)
 
     def __init__(self):
-        self.values: Set[self.ObjectWithTtlWrapper] = set()
+        self.wrappers: Set[StoreWithTimeout.ObjectWithTtlWrapper] = set()
         self._current = 0
 
     async def add(self, object_to_add: ObjectWithTtl, callback=None):
         wrapper = self.ObjectWithTtlWrapper(object_to_add)
 
-        if wrapper in self.values:
+        if wrapper in self.wrappers:
             await self.remove(wrapper.value)
 
         wrapper.timeout_task = asyncio.create_task(wrapper._wait())
@@ -42,17 +42,17 @@ class StoreWithTimeout:
         wrapper.timeout_task.add_done_callback(
             lambda _: self._done_callback(wrapper, callback)
         )
-        self.values.add(wrapper)
+        self.wrappers.add(wrapper)
 
     def _done_callback(self, caller: ObjectWithTtlWrapper, callback=None):
-        self.values.discard(caller)
+        self.wrappers.discard(caller)
         if caller.active is True and callback is not None:
             callback(caller.value)
 
     async def remove(self, object_to_remove: ObjectWithTtl):
         wrapper = self.ObjectWithTtlWrapper(object_to_remove)
 
-        for value in self.values:
+        for value in self.wrappers:
             if value == wrapper:
                 value.active = False
                 value.timeout_task.cancel()
@@ -63,21 +63,25 @@ class StoreWithTimeout:
                 break
 
     async def clear(self):
-        while len(self.values) > 0:
-            await self.remove(next(iter(self.values)).value)
+        while len(self.wrappers) > 0:
+            await self.remove(next(iter(self.wrappers)).value)
 
     def __contains__(self, item):
         wrapper = self.ObjectWithTtlWrapper(item)
-        return wrapper in self.values
+        return wrapper in self.wrappers
 
     def __iter__(self):
         self._current = 0
         return self
 
     def __next__(self):
-        if self._current < len(self.values):
-            result = next(iter(self.values))
+        if self._current < len(self.wrappers):
+            result = next(iter(self.wrappers))
             self._current += 1
             return result.value
         else:
             raise StopIteration
+
+    @property
+    def data(self):
+        return [wrapper.value for wrapper in self.wrappers]

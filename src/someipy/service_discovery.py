@@ -28,7 +28,6 @@ from someipy._internal.someip_sd_header import (
 )
 from someipy._internal.someip_sd_extractors import (
     extract_offered_services,
-    extract_subscribe_eventgroup_entries,
     extract_subscribe_ack_eventgroup_entries,
 )
 from someipy._internal.session_handler import SessionHandler
@@ -146,19 +145,6 @@ class ServiceDiscoveryProtocol(ServiceDiscoverySubject, ServiceDiscoverySender):
 
         for offered_service in extract_offered_services(someip_sd_header):
             self._handle_offered_service(offered_service)
-
-        for (
-            event_group_entry,
-            ipv4_endpoint_option,
-        ) in extract_subscribe_eventgroup_entries(someip_sd_header):
-            self._handle_subscribe_eventgroup_entry(
-                event_group_entry, ipv4_endpoint_option
-            )
-
-        for event_group_entry in extract_subscribe_ack_eventgroup_entries(
-            someip_sd_header
-        ):
-            self._handle_subscribe_ack_eventgroup_entry(event_group_entry)
 
     def connection_lost(self, exc: Exception) -> None:
         """

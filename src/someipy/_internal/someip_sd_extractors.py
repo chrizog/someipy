@@ -15,6 +15,7 @@
 
 from typing import List, Tuple, Iterable, Union
 from .someip_sd_header import (
+    SdSubscription,
     SomeIpSdHeader,
     SdService,
     SdEntryType,
@@ -72,9 +73,7 @@ def extract_offered_services(someip_sd_header: SomeIpSdHeader) -> List[SdService
     return result
 
 
-def extract_subscribe_eventgroup_entries(
-    someip_sd_header: SomeIpSdHeader,
-) -> List[Tuple[SdEventGroupEntry, SdIPV4EndpointOption]]:
+def extract_subscribe_entries(someip_sd_header: SomeIpSdHeader) -> List[SdSubscription]:
     result = []
 
     for entry in someip_sd_header.service_entries:
@@ -90,7 +89,21 @@ def extract_subscribe_eventgroup_entries(
                         current_option.sd_option_common.type
                         == SdOptionType.IPV4_ENDPOINT
                     ):
-                        result.append((entry, current_option))
+
+                        sd_subscription = SdSubscription(
+                            service_id=entry.sd_entry.service_id,
+                            instance_id=entry.sd_entry.instance_id,
+                            major_version=entry.sd_entry.major_version,
+                            ttl=entry.sd_entry.ttl,
+                            initial_data_requested_flag=entry.initial_data_requested_flag,
+                            counter=entry.counter,
+                            eventgroup_id=entry.eventgroup_id,
+                            ipv4_address=current_option.ipv4_address,
+                            port=current_option.port,
+                            protocol=current_option.protocol,
+                        )
+
+                        result.append(sd_subscription)
     return result
 
 
@@ -105,5 +118,20 @@ def extract_subscribe_ack_eventgroup_entries(
             # SUBSCRIBE_EVENT_GROUP_ACK = 0x07
             # SUBSCRIBE_EVENT_GROUP_NACK = 0x07  # with TTL set to 0x00
             if entry.sd_entry.ttl != 0x00:
+                result.append(entry)
+    return result
+
+
+def extract_subscribe_nack_eventgroup_entries(
+    someip_sd_header: SomeIpSdHeader,
+) -> List[SdEventGroupEntry]:
+    result = []
+
+    for entry in someip_sd_header.service_entries:
+        if entry.sd_entry.type == SdEntryType.SUBSCRIBE_EVENT_GROUP_ACK:
+            # Check TTL in order to distinguish between subscribe ack and nack
+            # SUBSCRIBE_EVENT_GROUP_ACK = 0x07
+            # SUBSCRIBE_EVENT_GROUP_NACK = 0x07  # with TTL set to 0x00
+            if entry.sd_entry.ttl == 0x00:
                 result.append(entry)
     return result

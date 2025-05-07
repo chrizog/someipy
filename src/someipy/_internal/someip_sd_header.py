@@ -53,6 +53,20 @@ class SdEntryType(Enum):
 
 
 @dataclass
+class SdSubscription:
+    service_id: int
+    instance_id: int
+    major_version: int
+    ttl: int
+    initial_data_requested_flag: int
+    counter: int
+    eventgroup_id: int
+    ipv4_address: ipaddress.IPv4Address
+    port: int
+    protocol: TransportLayerProtocol
+
+
+@dataclass
 class SdEntry:
     type: SdEntryType
     index_first_option: int

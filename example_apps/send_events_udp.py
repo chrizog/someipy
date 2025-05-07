@@ -8,14 +8,12 @@ from someipy import (
     ServiceBuilder,
     EventGroup,
     construct_server_service_instance,
+    connect_to_someipy_daemon,
 )
-from someipy.service_discovery import construct_service_discovery
-from someipy.logging import set_someipy_log_level
+from someipy.someipy_logging import set_someipy_log_level
 from someipy.serialization import Uint8, Uint64, Float32
 from temperature_msg import TemparatureMsg
 
-SD_MULTICAST_GROUP = "224.224.224.245"
-SD_PORT = 30490
 DEFAULT_INTERFACE_IP = "127.0.0.1"  # Default IP if not provided
 
 SAMPLE_SERVICE_ID = 0x1234
@@ -36,12 +34,7 @@ async def main():
                 interface_ip = sys.argv[i + 1]
                 break
 
-    # Since the construction of the class ServiceDiscoveryProtocol is not trivial and would require an async __init__ function
-    # use the construct_service_discovery function
-    # The local interface IP address needs to be passed so that the src-address of all SD UDP packets is correctly set
-    service_discovery = await construct_service_discovery(
-        SD_MULTICAST_GROUP, SD_PORT, interface_ip
-    )
+    someipy_daemon = await connect_to_someipy_daemon()
 
     temperature_eventgroup = EventGroup(
         id=SAMPLE_EVENTGROUP_ID, event_ids=[SAMPLE_EVENT_ID]
@@ -63,22 +56,15 @@ async def main():
             3000,
         ),  # src IP and port of the service
         ttl=5,
-        sd_sender=service_discovery,
+        daemon=someipy_daemon,
         cyclic_offer_delay_ms=2000,
         protocol=TransportLayerProtocol.UDP,
     )
 
-    # The service instance has to be attached always to the ServiceDiscoveryProtocol object, so that the service instance
-    # is notified by the ServiceDiscoveryProtocol about e.g. subscriptions from other ECUs
-    service_discovery.attach(service_instance_temperature)
-
-    # ..it's also possible to construct another ServerServiceInstance and attach it to service_discovery as well
-
-    # After constructing and attaching ServerServiceInstances to the ServiceDiscoveryProtocol object the
-    # start_offer method has to be called. This will start an internal timer, which will periodically send
-    # Offer service entries with a period of "cyclic_offer_delay_ms" which has been passed above
+    # After constructing a ServerServiceInstances the start_offer method has to be called. This will start an internal timer,
+    # which will periodically send  Offer service entries with a period of "cyclic_offer_delay_ms" which has been passed above
     print("Start offering service..")
-    service_instance_temperature.start_offer()
+    await service_instance_temperature.start_offer()
 
     tmp_msg = TemparatureMsg()
 
@@ -98,7 +84,7 @@ async def main():
             await asyncio.sleep(1)
             tmp_msg.timestamp = Uint64(tmp_msg.timestamp.value + 1)
             payload = tmp_msg.serialize()
-            service_instance_temperature.send_event(
+            await service_instance_temperature.send_event(
                 SAMPLE_EVENTGROUP_ID, SAMPLE_EVENT_ID, payload
             )
 
@@ -109,8 +95,8 @@ async def main():
         print("Stop offering service..")
         await service_instance_temperature.stop_offer()
     finally:
-        print("Service Discovery close..")
-        service_discovery.close()
+        print("Disconnect from daemon..")
+        await someipy_daemon.disconnect_from_daemon()
 
     print("End main task..")
 
