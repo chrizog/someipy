@@ -1,13 +1,27 @@
 import asyncio
-import ipaddress
+import base64
 import json
 import struct
-from typing import Dict, List, TypedDict
+from typing import Dict, List, TypedDict, cast
 
-from someipy._internal.daemon_client_abcs import ClientInstanceInterface
+from someipy._internal.daemon_client_abcs import (
+    ClientInstanceInterface,
+    ServerInstanceInterface,
+)
+from someipy._internal.logging import get_logger
 from someipy._internal.transport_layer_protocol import TransportLayerProtocol
-from someipy._internal.utils import EndpointType
+from someipy._internal.uds_messages import (
+    BaseMessage,
+    CallMethodRequest,
+    CallMethodResponse,
+    OfferServiceRequest,
+    StopOfferServiceRequest,
+    create_uds_message,
+)
+from someipy.service import EventGroup, Method
 from someipy.service_discovery import SdService
+
+_logger_name = "server_service_instance"
 
 
 async def connect_to_someipy_daemon(config: dict = None):
@@ -37,40 +51,29 @@ class SomeIpDaemonClient:
         self._tx_task: asyncio.Task = None
 
         self._client_service_instances: Dict[int, ClientInstanceInterface] = {}
+        self._server_service_instances: List[ServerInstanceInterface] = []
+
+        self.reader: asyncio.StreamReader = None
+        self.writer: asyncio.StreamWriter = None
 
     def _prepare_request(self, message: dict):
         payload = json.dumps(message).encode("utf-8")
         return struct.pack("<I", len(payload)) + bytes(256 - 4) + payload
 
-    async def _connect_to_daemon(self):
-        try:
-            while not self._rx_message_queue.empty():
-                try:
-                    self._rx_message_queue.get_nowait()
-                    self._rx_message_queue.task_done()
-                except asyncio.QueueEmpty:
-                    break
+    async def _connected_to_daemon(self):
+        pass
 
-            self._rx_message_queue = asyncio.Queue()
-            self.reader, self.writer = await asyncio.wait_for(
-                asyncio.open_unix_connection(self._socket_path), timeout=1
-            )
-
-            self._rx_task = asyncio.create_task(self.receive_data())
-            self._tx_task = asyncio.create_task(self.transmit_data_task(self.writer))
-
-        except asyncio.TimeoutError:
-            raise Exception("Failed to connect to daemon: Timeout")
-        except Exception as e:
-            raise Exception(f"Failed to connect to daemon: {e}")
-
-    async def disconnect_from_daemon(self):
+    async def _disconnected_from_daemon(self):
         if self.writer:
-            self.writer.close()
-            await self.writer.wait_closed()
-            self.writer = None
+            try:
+                self.writer.close()
+                await self.writer.wait_closed()
+            except Exception as e:
+                get_logger(_logger_name).error(f"Error closing writer: {e}")
+            finally:
+                self.writer = None
 
-        if self._rx_task:
+        if self._rx_task and not self._rx_task.done() and not self._rx_task.cancelled():
             try:
                 self._rx_task.cancel()
                 await self._rx_task
@@ -79,7 +82,7 @@ class SomeIpDaemonClient:
             finally:
                 self._rx_task = None
 
-        if self._tx_task:
+        if self._tx_task and not self._tx_task.done() and not self._tx_task.cancelled():
             try:
                 self._tx_task.cancel()
                 await self._tx_task
@@ -87,6 +90,43 @@ class SomeIpDaemonClient:
                 pass
             finally:
                 self._tx_task = None
+
+        self._clear_rx_queue()
+
+    def _clear_rx_queue(self):
+        if self._rx_message_queue is None:
+            return
+        while not self._rx_message_queue.empty():
+            try:
+                self._rx_message_queue.get_nowait()
+                self._rx_message_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+
+    async def _connect_to_daemon(self):
+        try:
+            self._clear_rx_queue()
+            self._rx_message_queue = asyncio.Queue()
+
+            self.reader, self.writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(self._socket_path), timeout=1
+            )
+
+        except asyncio.TimeoutError:
+            raise Exception("Failed to connect to daemon: Timeout")
+        except Exception as e:
+            raise Exception(f"Failed to connect to daemon: {e}")
+
+        self._rx_task = asyncio.create_task(self.receive_data_task(self.reader))
+        self._tx_task = asyncio.create_task(self.transmit_data_task(self.writer))
+
+    async def _wait_until_tx_queue_empty(self):
+        while not self._tx_queue.empty():
+            await asyncio.sleep(0.1)
+
+    async def disconnect_from_daemon(self):
+        await asyncio.wait_for(self._wait_until_tx_queue_empty(), 0.5)
+        await self._disconnected_from_daemon()
 
     async def transmit_data_task(self, writer: asyncio.StreamWriter):
         try:
@@ -99,8 +139,11 @@ class SomeIpDaemonClient:
                         # Send the data
                         writer.write(data)
                         await writer.drain()
+
+                        self._tx_queue.task_done()
+
                     except ConnectionError as e:
-                        print(f"Connection error: {e}")
+                        get_logger(_logger_name).error(f"Connection error: {e}")
                         break
 
                 except asyncio.TimeoutError:
@@ -108,48 +151,115 @@ class SomeIpDaemonClient:
                     continue
 
         except asyncio.CancelledError:
-            print("TX task cancelled, cleaning up...")
-            # Perform cleanup here
-            try:
-                print("Closing writer...")
-                writer.close()
-                await writer.wait_closed()
-            except Exception as e:
-                print(f"Error closing writer: {e}")
+            get_logger(_logger_name).debug("Daemon client TX task cancelled")
         finally:
-            print("TX task finished")
+            await self._disconnected_from_daemon()
+            get_logger(_logger_name).debug("Daemon client TX task finished")
 
     def transmit_message_to_daemon(self, message: dict):
+        get_logger(_logger_name).debug(f"Transmitting message: {message}")
         request_bytes = self._prepare_request(message)
         self._tx_queue.put_nowait(request_bytes)
 
-    async def receive_data(self):
+    async def handle_single_method_call(
+        self, method_request: CallMethodRequest, method: Method
+    ):
+
+        payload_decoded = base64.b64decode(method_request["payload"])
+
+        # check if the method handler is a coroutine function
+        if asyncio.iscoroutinefunction(method.method_handler):
+            # Call the method handler as a coroutine
+            result = await method.method_handler(
+                payload_decoded,
+                (
+                    method_request["src_endpoint_ip"],
+                    method_request["src_endpoint_port"],
+                ),
+            )
+        else:
+            # Call the method handler as a regular function
+            result = method.method_handler(
+                payload_decoded,
+                (
+                    method_request["src_endpoint_ip"],
+                    method_request["src_endpoint_port"],
+                ),
+            )
+
+        encoded_result = base64.b64encode(result.payload).decode("utf-8")
+        call_method_response = create_uds_message(
+            CallMethodResponse,
+            service_id=method_request["service_id"],
+            instance_id=method_request["instance_id"],
+            method_id=method_request["method_id"],
+            client_id=method_request["client_id"],
+            session_id=method_request["session_id"],
+            protocol_version=method_request["protocol_version"],
+            interface_version=method_request["interface_version"],
+            major_version=method_request["major_version"],
+            minor_version=method_request["minor_version"],
+            message_type=result.message_type.value,
+            src_endpoint_ip=method_request["src_endpoint_ip"],
+            src_endpoint_port=method_request["src_endpoint_port"],
+            protocol=method_request["protocol"],
+            payload=encoded_result,
+            return_code=result.return_code.value,
+        )
+
+        self.transmit_message_to_daemon(call_method_response)
+
+    async def _handle_message(self, message: BaseMessage):
+
+        if message["type"] == CallMethodRequest.__name__:
+
+            get_logger(_logger_name).debug(f"Received CallMethodRequest: {message}")
+
+            message = cast(CallMethodRequest, message)
+
+            # Find the right method and call the method handler
+            service_id = message["service_id"]
+            instance_id = message["instance_id"]
+            major_version = message["major_version"]
+            minor_version = message["minor_version"]
+            method_id = message["method_id"]
+            protocol = message["protocol"]
+
+            for service_instance in self._server_service_instances:
+                if (
+                    service_instance.service.id == service_id
+                    and service_instance.instance_id == instance_id
+                    and service_instance.service.major_version == major_version
+                ):
+                    method = service_instance.service.methods.get(method_id, None)
+                    if method:
+                        get_logger(_logger_name).debug(
+                            f"Calling method {method_id} on service {service_id}"
+                        )
+                        # Call the method handler, eventually call it in a separate task
+                        # to avoid blocking the event loop
+
+                        asyncio.create_task(
+                            self.handle_single_method_call(message, method)
+                        )
+
+        pass
+
+    async def receive_data_task(self, reader: asyncio.StreamReader):
         while True:
             try:
-                message = await self._read_next_message()
-                print(f"Received message: {message}")
-                if message:
-                    if message["type"] == "SubscribeEventgroupReadyRequest":
-                        # Multiple client service instances can be connected to the daemon
-                        for client in self._client_service_instances.values():
-                            client.subscribe_ready_request(message)
-
-                    else:
-                        self._rx_message_queue.put_nowait(message)
-                else:
-                    break
+                message = await self._read_next_message(reader)
+                get_logger(_logger_name).debug(f"Received message: {message}")
+                await self._handle_message(message)
             except Exception as e:
-                print(f"Error receiving data: {e}")
+                get_logger(_logger_name).error(f"Error processing message: {e}")
                 break
 
-        if self._tx_task:
-            try:
-                self._tx_task.cancel()
-                await self._tx_task
-            except asyncio.CancelledError:
-                pass
+        await self._disconnected_from_daemon()
 
-    async def _read_next_message(self, timeout=None) -> dict:
+    async def _read_next_message(
+        self, reader: asyncio.StreamReader, timeout=None
+    ) -> dict:
         wait_for_header = True
         header_buffer = b""
         message_buffer = b""
@@ -160,14 +270,15 @@ class SomeIpDaemonClient:
                 try:
                     if timeout is not None:
                         data = await asyncio.wait_for(
-                            self.reader.read(256 - len(header_buffer)), timeout
+                            reader.read(256 - len(header_buffer)), timeout
                         )
                     else:
-                        data = await self.reader.read(256 - len(header_buffer))
+                        data = await reader.read(256 - len(header_buffer))
                     if not data:
+                        get_logger(_logger_name).error("No data received")
                         break
                 except asyncio.TimeoutError as e:
-                    print("Failed to read header: Timeout")
+                    get_logger(_logger_name).error("Failed to read header: Timeout")
                     raise e
                 except Exception as e:
                     raise Exception(f"Failed to read header: {e}")
@@ -177,25 +288,26 @@ class SomeIpDaemonClient:
                 if len(header_buffer) == 256:
                     try:
                         message_length = struct.unpack("<I", header_buffer[:4])[0]
+                        message_buffer = b""
                         wait_for_header = False
                     except struct.error:
-                        print(f"Client sent invalid message length.")
+                        get_logger(_logger_name).error(
+                            "Failed to unpack message length from header"
+                        )
                         break
             else:
                 try:
                     if timeout is not None:
                         data = await asyncio.wait_for(
-                            self.reader.read(message_length - len(message_buffer)),
+                            reader.read(message_length - len(message_buffer)),
                             timeout,
                         )
                     else:
-                        data = await self.reader.read(
-                            message_length - len(message_buffer)
-                        )
+                        data = await reader.read(message_length - len(message_buffer))
                     if not data:
                         break
                 except asyncio.TimeoutError as e:
-                    print("Failed to read message: Timeout")
+                    get_logger(_logger_name).error("Failed to read message: Timeout")
                     raise e
                 except Exception as e:
                     raise Exception(f"Failed to read message: {e}")
@@ -203,27 +315,13 @@ class SomeIpDaemonClient:
                 message_buffer += data
 
                 if len(message_buffer) == message_length:
+
+                    wait_for_header = True
+                    header_buffer = b""
+                    message_length = 0
+
                     return json.loads(message_buffer.decode("utf-8"))
         return None
-
-    async def _get_offered_services(self) -> List[SdService]:
-        request = {
-            "type": "get_offered_services_req",
-        }
-        request_bytes = self._prepare_request(request)
-        self._tx_queue.put_nowait(request_bytes)
-
-        response = await self._rx_message_queue.get()
-
-        if response["type"] != "get_offered_services_res":
-            self._rx_message_queue.task_done()
-            raise Exception(
-                f"Invalid response from daemon. Expected get_offered_services_res and got {response['type']}"
-            )
-
-        services = [SdService.from_json(service) for service in response["services"]]
-        self._rx_message_queue.task_done()
-        return services
 
     async def _find_service(self, service: SdService):
         request = {
@@ -244,90 +342,58 @@ class SomeIpDaemonClient:
         self._rx_message_queue.task_done()
         return response["service"]
 
-    async def _offer_service(
-        self,
-        service: SdService,
-        cyclic_offer_delay_ms: int,
-        eventgroup_ids: List[int] = [],
-    ):
-        request = {
-            "type": "offer_service_req",
-            "service": service.to_json(),
-            "cyclic_offer_delay_ms": cyclic_offer_delay_ms,
-            "eventgroup_ids": eventgroup_ids,
-        }
-        request_bytes = self._prepare_request(request)
-        self._tx_queue.put_nowait(request_bytes)
-
-    async def _stop_offer_service(self, service: SdService):
-        request = {
-            "type": "stop_offer_service_req",
-            "service": service.to_json(),
-        }
-        request_bytes = self._prepare_request(request)
-        self._tx_queue.put_nowait(request_bytes)
-
-    async def _get_subscribers(
-        self, service: SdService, eventgroup_id: int
-    ) -> List[EndpointType]:
-        request = {
-            "type": "get_eventgroup_subscriptions_req",
-            "service": service.to_json(),
-            "eventgroup_id": eventgroup_id,
-        }
-        request_bytes = self._prepare_request(request)
-        self._tx_queue.put_nowait(request_bytes)
-
-        response = await self._rx_message_queue.get()
-
-        if response["type"] != "get_eventgroup_subscriptions_res":
-            self._rx_message_queue.task_done()
-            raise Exception(
-                f"Invalid response from daemon. Expected get_subscribers_res and got {response['type']}"
-            )
-
-        subscriptions = []
-        for subscription in response["subscriptions"]:
-            subscriptions.append(
-                (
-                    ipaddress.IPv4Address(subscription["endpoint_ip"]),
-                    subscription["endpoint_port"],
-                )
-            )
-
-        self._rx_message_queue.task_done()
-        return subscriptions
-
-    def _subscribe_to_eventgroup(
+    async def offer_service(
         self,
         service_id: int,
         instance_id: int,
         major_version: int,
-        client_endpoint_ip: str,
-        client_endpoint_port: int,
-        protocol: TransportLayerProtocol,
-        eventgroup_id: int,
-        ttl_subscription: int,
+        minor_version: int,
+        ttl: int,
+        endpoint_ip: str,
+        endpoint_port: int,
+        eventgroups: List[EventGroup],
+        methods: List[Method],
+        cyclic_offer_delay_ms: int,
     ):
-        request = {
-            "type": "subscribe_eventgroup_req",
-            "service_id": service_id,
-            "instance_id": instance_id,
-            "major_version": major_version,
-            "client_endpoint_ip": client_endpoint_ip,
-            "client_endpoint_port": client_endpoint_port,
-            "eventgroup_id": eventgroup_id,
-            "ttl_subscription": ttl_subscription,
-            "protocol": protocol.value,
-        }
-        request_bytes = self._prepare_request(request)
-        self._tx_queue.put_nowait(request_bytes)
+        request = create_uds_message(
+            OfferServiceRequest,
+            service_id=service_id,
+            instance_id=instance_id,
+            major_version=major_version,
+            minor_version=minor_version,
+            endpoint_ip=endpoint_ip,
+            endpoint_port=endpoint_port,
+            ttl=ttl,
+            eventgroup_list=[eventgroup.to_json() for eventgroup in eventgroups],
+            method_list=[method.to_json() for method in methods],
+            cyclic_offer_delay_ms=cyclic_offer_delay_ms,
+        )
+        self.transmit_message_to_daemon(request)
 
-    def _unsubscribe_from_eventgroup(self, service: SdService, eventgroup_id: int):
-        request = {
-            "type": "stop_subscribe_eventgroup_req",
-            "service": service.to_json(),
-            "eventgroup_id": eventgroup_id,
-        }
-        request_bytes = self._prepare_request(request)
-        self._tx_queue.put_nowait(request_bytes)
+    async def stop_offer_service(
+        self,
+        service_id: int,
+        instance_id: int,
+        major_version: int,
+        minor_version: int,
+        ttl: int,
+        endpoint_ip: str,
+        endpoint_port: int,
+        eventgroups: List[EventGroup],
+        methods: List[Method],
+        cyclic_offer_delay_ms: int,
+    ):
+        request = create_uds_message(
+            StopOfferServiceRequest,
+            service_id=service_id,
+            instance_id=instance_id,
+            major_version=major_version,
+            minor_version=minor_version,
+            endpoint_ip=endpoint_ip,
+            endpoint_port=endpoint_port,
+            ttl=ttl,
+            eventgroup_list=[eventgroup.to_json() for eventgroup in eventgroups],
+            method_list=[method.to_json() for method in methods],
+            cyclic_offer_delay_ms=cyclic_offer_delay_ms,
+        )
+        self.transmit_message_to_daemon(request)

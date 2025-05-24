@@ -6,14 +6,13 @@ from typing import Tuple
 
 from someipy import TransportLayerProtocol, MethodResult, ReturnCode, MessageType
 from someipy import connect_to_someipy_daemon
+from someipy.server_service_instance import ServerServiceInstance
 from someipy.service import ServiceBuilder, Method
-from someipy.service_discovery import construct_service_discovery
-from someipy.server_service_instance import construct_server_service_instance
 from someipy.someipy_logging import set_someipy_log_level
 from someipy.serialization import Sint32
 from addition_method_parameters import Addends, Sum
 
-DEFAULT_INTERFACE_IP = "127.0.0.1"  # Default IP if not provided
+DEFAULT_INTERFACE_IP = "127.0.0.2"  # Default IP if not provided
 
 SAMPLE_SERVICE_ID = 0x1234
 SAMPLE_INSTANCE_ID = 0x5678
@@ -65,7 +64,12 @@ async def main():
 
     someipy_daemon = await connect_to_someipy_daemon()
 
-    addition_method = Method(id=SAMPLE_METHOD_ID, method_handler=add_method_handler)
+    addition_method = Method(
+        id=SAMPLE_METHOD_ID,
+        protocol=TransportLayerProtocol.UDP,
+        method_handler=add_method_handler,
+    )
+
     addition_service = (
         ServiceBuilder()
         .with_service_id(SAMPLE_SERVICE_ID)
@@ -75,17 +79,14 @@ async def main():
     )
 
     # For offering methods use a ServerServiceInstance
-    service_instance_addition = await construct_server_service_instance(
-        addition_service,
-        instance_id=SAMPLE_INSTANCE_ID,
-        endpoint=(
-            ipaddress.IPv4Address(interface_ip),
-            3000,
-        ),  # src IP and port of the service
-        ttl=5,
+    service_instance_addition = ServerServiceInstance(
         daemon=someipy_daemon,
+        service=addition_service,
+        instance_id=SAMPLE_INSTANCE_ID,
+        endpoint_ip=interface_ip,
+        endpoint_port=3000,
+        ttl=5,
         cyclic_offer_delay_ms=2000,
-        protocol=TransportLayerProtocol.UDP,
     )
 
     # After constructing ServerServiceInstances the start_offer method has to be called.

@@ -14,12 +14,15 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from dataclasses import dataclass
-from typing import List, Callable, Tuple, Dict
+import json
+from typing import List, Callable, Tuple, Dict, TypeVar
 
 from someipy._internal.method_result import MethodResult
+from someipy._internal.transport_layer_protocol import TransportLayerProtocol
 
 
 MethodHandler = Callable[[bytes, Tuple[str, int]], MethodResult]
+_T = TypeVar("_T")
 
 
 @dataclass
@@ -29,10 +32,53 @@ class Method:
     """
 
     id: int
+    protocol: TransportLayerProtocol
     method_handler: MethodHandler
 
     def __eq__(self, __value: object) -> bool:
-        return self.method_id == __value.method_id
+        return self.id == __value.id and self.protocol == __value.protocol
+
+    def to_json(self) -> str:
+        as_dict = {
+            "id": self.id,
+            "protocol": self.protocol.value,
+        }
+        return json.dumps(as_dict)
+
+    @classmethod
+    def from_json(cls: _T, json_str: str) -> _T:
+        json_dict = json.loads(json_str)
+
+        id = int(json_dict["id"])
+        protocol = TransportLayerProtocol(json_dict["protocol"])
+        method_handler = None
+        o = cls(id, protocol, method_handler)
+        return o
+
+
+@dataclass
+class Event:
+    """
+    Class representing a SOME/IP event with an event id and a transport layer protocol.
+    """
+
+    id: int
+    protocol: TransportLayerProtocol
+
+    def to_json(self) -> str:
+        as_dict = {
+            "id": self.id,
+            "protocol": self.protocol.value,
+        }
+        return json.dumps(as_dict)
+
+    @classmethod
+    def from_json(cls: _T, json_str: str) -> _T:
+        json_dict = json.loads(json_str)
+        o = cls()
+        o.id = int(json_dict["id"])
+        o.protocol = TransportLayerProtocol(json_dict["protocol"])
+        return o
 
 
 @dataclass
@@ -42,7 +88,14 @@ class EventGroup:
     """
 
     id: int
-    event_ids: List[int]
+    events: List[Event]
+
+    def to_json(self) -> str:
+        as_dict = {
+            "id": self.id,
+            "events": [event.to_json() for event in self.events],
+        }
+        return json.dumps(as_dict)
 
 
 @dataclass
@@ -73,6 +126,19 @@ class Service:
         :return: A list of integers representing the event group IDs.
         """
         return list(self.eventgroups.keys())
+
+    @property
+    def events(self) -> List[Event]:
+        """
+        Returns a list of events associated with the service.
+
+        :return: A list of Event objects.
+        """
+        return [
+            event
+            for eventgroup in self.eventgroups.values()
+            for event in eventgroup.events
+        ]
 
     @property
     def methodids(self) -> List[int]:

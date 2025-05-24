@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import base64
 import functools
 import json
 import logging
@@ -9,6 +10,15 @@ import sys
 import ipaddress
 from typing import Any, Dict, List, Tuple, Union
 
+from someipy._internal.message_types import MessageType
+from someipy._internal.someip_endpoint import (
+    SomeipEndpoint,
+    TCPSomeipEndpoint,
+    UDPSomeipEndpoint,
+)
+from someipy._internal.someip_endpoint_storage import SomeipEndpointStorage
+from someipy._internal.someip_message import SomeIpMessage
+from someipy._internal.tcp_client_manager import TcpClientManager, TcpClientProtocol
 from someipy._internal.transport_layer_protocol import TransportLayerProtocol
 from someipy._internal.session_handler import SessionHandler
 from someipy._internal.simple_timer import SimplePeriodicTimer
@@ -34,8 +44,11 @@ from someipy._internal.someip_sd_header import (
 )
 from someipy._internal.store_with_timeout import StoreWithTimeout
 from someipy._internal.subscribers import EventGroupSubscriber, Subscribers
-from someipy._internal.task_manager import TaskManager
 from someipy._internal.uds_messages import (
+    CallMethodRequest,
+    CallMethodResponse,
+    OfferServiceRequest,
+    StopOfferServiceRequest,
     SubscribeEventgroupReadyRequest,
     SubscribeEventgroupReadyResponse,
     create_uds_message,
@@ -45,6 +58,8 @@ from someipy._internal.utils import (
     create_rcv_multicast_socket,
     create_udp_socket,
 )
+from someipy._internal.offer_service_storage import OfferServiceStorage, ServiceToOffer
+from someipy.service import Method
 
 
 DEFAULT_SOCKET_PATH = "/tmp/someipyd.sock"
@@ -52,94 +67,6 @@ DEFAULT_CONFIG_FILE = "someipyd.json"
 DEFAULT_SD_ADDRESS = "224.224.224.245"
 DEFAULT_INTERFACE_IP = "127.0.0.2"
 DEFAULT_SD_PORT = 30490
-
-
-class SdServiceStorage:
-    class _ServiceWrapper:
-        def __init__(
-            self,
-            sd_service: SdService,
-            cyclic_offer_delay_ms: int,
-            eventgroup_ids: List[int],
-            client_writer_id: int,
-        ):
-            self.sd_service = sd_service
-            self.cylic_offer_delay_ms = cyclic_offer_delay_ms
-            self.eventgroup_ids = eventgroup_ids
-            self.client_writer_id = client_writer_id
-
-    def __init__(self, logger: logging.Logger):
-        self._data: List[SdServiceStorage._ServiceWrapper] = []
-        self._logger = logger
-
-    def add_service(
-        self,
-        service: SdService,
-        cyclic_offer_delay_ms: int,
-        eventgroup_ids: List[int],
-        client_writer_id: int,
-    ):
-        services = [x.sd_service for x in self._data]
-        if service in services:
-            self._logger.warn(
-                f"Service 0x{service.service_id:04X}, 0x{service.instance_id:04X} already exists in sd storage."
-            )
-            return
-
-        service_wrapper = SdServiceStorage._ServiceWrapper(
-            service, cyclic_offer_delay_ms, eventgroup_ids, client_writer_id
-        )
-        self._data.append(service_wrapper)
-
-    def remove_service(self, service: SdService):
-        i = 0
-        while i < len(self._data):
-            if self._data[i].sd_service == service:
-                self._logger.debug(
-                    f"Removing service 0x{service.service_id:04X}, 0x{service.instance_id:04X} from sd storage."
-                )
-                del self._data[i]
-            else:
-                i += 1
-
-    def remove_client(self, client_writer_id: int):
-        i = 0
-        while i < len(self._data):
-            if self._data[i].client_writer_id == client_writer_id:
-                self._logger.debug(
-                    f"Removing service {self._data[i].sd_service} from sd storage."
-                )
-                del self._data[i]
-            else:
-                i += 1
-
-    def get_services_by_cyclic_offer_delay(
-        self, cyclic_offer_delay_ms: int
-    ) -> List[SdService]:
-        services = [
-            x.sd_service
-            for x in self._data
-            if x.cylic_offer_delay_ms == cyclic_offer_delay_ms
-        ]
-        return services
-
-    def get_services_by_eventgroup_id(self, eventgroup_id: int) -> List[SdService]:
-        services = [
-            x.sd_service for x in self._data if eventgroup_id in x.eventgroup_ids
-        ]
-        return services
-
-    def get_services_by_client(self, client_id: int) -> List[SdService]:
-        services = [x.sd_service for x in self._data if x.client_writer_id == client_id]
-        return services
-
-    @property
-    def services(self):
-        return [x.sd_service for x in self._data]
-
-    @property
-    def service_wrappers(self):
-        return self._data
 
 
 class RequestedSubscription:
@@ -254,7 +181,7 @@ class SomeipDaemon:
         self._offered_services = StoreWithTimeout()
 
         # Services offered by this daemon
-        self._services_to_offer = SdServiceStorage(self.logger)
+        self._services_to_offer = OfferServiceStorage()
         self._offer_timers: Dict[int, SimplePeriodicTimer] = {}
 
         # Active subscriptions to services offered by this daemon
@@ -270,6 +197,8 @@ class SomeipDaemon:
         self._tx_queues: Dict[int, asyncio.Queue] = {}
         self._tx_tasks: Dict[int, asyncio.Task] = {}
         self._rx_queues: Dict[int, asyncio.Queue] = {}
+
+        self._someip_endpoints = SomeipEndpointStorage()
 
     def _configure_logging(self):
         logger = logging.getLogger(f"someipyd")
@@ -303,13 +232,103 @@ class SomeipDaemon:
         else:
             return {}
 
+    async def _create_server_endpoint(
+        self, ip: str, port: int, protocol: TransportLayerProtocol
+    ) -> SomeipEndpoint:
+
+        if protocol == TransportLayerProtocol.UDP:
+            loop = asyncio.get_running_loop()
+            rcv_socket = create_udp_socket(ip, port)
+
+            _, udp_endpoint = await loop.create_datagram_endpoint(
+                lambda: UDPSomeipEndpoint(ip, port), sock=rcv_socket
+            )
+
+            udp_endpoint.set_someip_callback(self._someip_message_callback)
+
+            return udp_endpoint
+        else:
+            tcp_client_manager = TcpClientManager(ip, port)
+            loop = asyncio.get_running_loop()
+            server = await loop.create_server(
+                lambda: TcpClientProtocol(client_manager=tcp_client_manager),
+                ip,
+                port,
+            )
+            tcp_someip_endpoint = TCPSomeipEndpoint(
+                server, tcp_client_manager, ip, port
+            )
+
+            tcp_someip_endpoint.set_someip_callback(self._someip_message_callback)
+
+            return tcp_someip_endpoint
+
+    def _someip_message_callback(
+        self,
+        message: SomeIpMessage,
+        src_addr: Tuple[str, int],
+        dst_addr: Tuple[str, int],
+        protocol: TransportLayerProtocol,
+    ) -> None:
+        self.logger.debug(
+            f"Received SOME/IP message from {src_addr} to {dst_addr} with protocol {protocol}"
+        )
+
+        header = message.header
+        print(f"message_type {header.message_type}")
+        if MessageType(header.message_type) == MessageType.REQUEST:
+            service_id = header.service_id
+            method_id = header.method_id
+
+            for service in self._services_to_offer.get_all_services():
+
+                if (
+                    service.service_id == service_id
+                    and service.endpoint_ip == dst_addr[0]
+                    and service.endpoint_port == dst_addr[1]
+                ):
+                    self.logger.debug(f"Found matching service {service.service_id}")
+                    for method in service.methods:
+                        if method.id == method_id:
+                            self.logger.debug(
+                                f"Found matching method id {method.id} for service {service_id}"
+                            )
+
+                            payload_encoded = base64.b64encode(message.payload).decode(
+                                "utf-8"
+                            )
+
+                            print(header)
+
+                            call_method_request = create_uds_message(
+                                CallMethodRequest,
+                                service_id=service_id,
+                                instance_id=service.instance_id,
+                                method_id=method_id,
+                                client_id=header.client_id,
+                                session_id=header.session_id,
+                                protocol_version=header.protocol_version,
+                                interface_version=header.interface_version,
+                                major_version=service.major_version,
+                                minor_version=service.minor_version,
+                                message_type=header.message_type,
+                                src_endpoint_ip=src_addr[0],
+                                src_endpoint_port=src_addr[1],
+                                protocol=protocol.value,
+                                payload=payload_encoded,
+                            )
+
+                            tx_queue = self._tx_queues.get(service.client_writer_id)
+                            if tx_queue:
+                                tx_queue.put_nowait(
+                                    self.prepare_message(call_method_request)
+                                )
+
     def _cleanup_unused_timers(self):
         timers_to_stop = []
         for interval in self._offer_timers.keys():
             if (
-                len(
-                    self._services_to_offer.get_services_by_cyclic_offer_delay(interval)
-                )
+                len(self._services_to_offer.services_by_cyclic_offer_delay(interval))
                 == 0
             ):
                 timers_to_stop.append(interval)
@@ -317,6 +336,23 @@ class SomeipDaemon:
             self.logger.debug(f"Stopping offer timer for {interval}ms")
             self._offer_timers[interval].stop()
             del self._offer_timers[interval]
+
+    def _close_unused_endpoints(self):
+        endpoints_to_close = []
+
+        # Loop through all endpoints. For each endpoint loop through offered services and check if the endpoint is used by any service
+        for endpoint in self._someip_endpoints:
+            endpoint_used = False
+            for service in self._services_to_offer.services:
+                if (
+                    service.endpoint_ip == endpoint.ip()
+                    and service.endpoint_port == endpoint.port()
+                ):
+                    endpoint_used = True
+                    break
+
+            if not endpoint_used:
+                endpoints_to_close.append(endpoint)
 
     async def tx_task(self, writer: asyncio.StreamWriter):
         tx_queue = self._tx_queues[id(writer)]
@@ -331,8 +367,9 @@ class SomeipDaemon:
                         # Send the data
                         writer.write(data)
                         await writer.drain()
+                        tx_queue.task_done()
                     except ConnectionError as e:
-                        print(f"Connection error: {e}")
+                        self.logger.error(f"Error sending data in tx task: {e}")
                         break
 
                 except asyncio.TimeoutError:
@@ -340,17 +377,17 @@ class SomeipDaemon:
                     continue
 
         except asyncio.CancelledError:
-            print("TX task cancelled, cleaning up...")
+            self.logger.debug(f"TX task for writer {id(writer)} cancelled")
             # Perform cleanup here
             try:
                 writer.close()
                 await writer.wait_closed()
             except Exception as e:
-                print(f"Error closing writer: {e}")
+                self.logger.error(f"Error closing writer: {e}")
         finally:
             # Always clean up the queue
             self._tx_queues.pop(id(writer), None)
-            print("TX task finished")
+            self.logger.debug(f"TX task for writer {id(writer)} finished")
 
     async def handle_client(self, reader, writer):
         self.logger.info(f"Client connected")
@@ -371,6 +408,7 @@ class SomeipDaemon:
                 if wait_for_header:
                     data = await reader.read(256 - len(header_buffer))
                     if not data:
+                        self.logger.debug(f"Data is none. Client disconnected.")
                         break  # Client disconnected
 
                     header_buffer += data
@@ -393,6 +431,7 @@ class SomeipDaemon:
                 else:
                     data = await reader.read(message_length - len(message_buffer))
                     if not data:
+                        self.logger.debug(f"Data is none. Client disconnected.")
                         break  # Client disconnected
 
                     message_buffer += data
@@ -421,7 +460,7 @@ class SomeipDaemon:
 
             # Clean up the transmission task for the client. This will also clean up the transmission queue
             tx_task = self._tx_tasks.get(writer_id)
-            if tx_task:
+            if tx_task and not tx_task.cancelled():
                 tx_task.cancel()
                 try:
                     await tx_task
@@ -433,6 +472,15 @@ class SomeipDaemon:
             self._services_to_offer.remove_client(writer_id)
             self._cleanup_unused_timers()
 
+            client_endpoints = self._someip_endpoints.get_endpoints(writer_id)
+            if client_endpoints is not None:
+                for endpoint in client_endpoints:
+                    self.logger.debug(
+                        f"Closing endpoint {endpoint.ip()}:{endpoint.port()} for client {writer_id}"
+                    )
+                    endpoint.shutdown()
+                    self._someip_endpoints.remove_endpoint(writer_id, endpoint)
+
             self.logger.debug(f"Client disconnected")
 
     async def handle_client_message(self, message: dict, writer: asyncio.StreamWriter):
@@ -442,76 +490,20 @@ class SomeipDaemon:
         self.logger.debug(f"Received message type: {message_type}")
 
         message_handlers = {
-            SubscribeEventgroupReadyResponse.__name__: self._handle_client_message_subscribe_eventgroup_ready_res
+            OfferServiceRequest.__name__: self._handle_offer_service_request,
+            StopOfferServiceRequest.__name__: self._handle_stop_offer_service_request,
+            CallMethodResponse.__name__: self._handle_call_method_response,
         }
 
         if message_type in message_handlers:
-            message_handlers[message_type](message)
+            handler = message_handlers[message_type]
 
-        elif message_type == "get_offered_services_req":
-
-            # Combine services offered by the daemon itself and by other ECUs
-            services_from_other_ecus = self._offered_services.data
-            services_from_daemon = self._services_to_offer.services
-            services = services_from_other_ecus + services_from_daemon
-            services_in_json = [v.to_json() for v in services]
-
-            answer = {"type": "get_offered_services_res", "services": services_in_json}
-
-            tx_queue = self._tx_queues[writer_id]
-            tx_queue.put_nowait(self.prepare_message(answer))
-
-        elif message_type == "find_service_req":
-            pass
-            """
-            1. Store which client has sent out the find request
-            2. Check if there is a local service that matches the find request
-            3. If yes, send the answer directly to the client
-            4. If not, send out the find request
-            5. If an offer is received, check if the service id and instance id match the find request
-            6. If yes, send the offer to the client and remove the flag that the client is waiting for an offer
-            """
-            # self.handle_find_service_req(message)
-
-        elif message_type == "offer_service_req":
-            service = SdService.from_json(message["service"])
-            cyclic_offer_delay_ms = message["cyclic_offer_delay_ms"]
-            eventgroup_ids = message["eventgroup_ids"]
-
-            self._services_to_offer.add_service(
-                service,
-                cyclic_offer_delay_ms,
-                eventgroup_ids,
-                writer_id,
-            )
-
-            # If there is no timer running for the interval yet, create a new timer task
-            if cyclic_offer_delay_ms not in self._offer_timers:
-                self.logger.debug(f"Starting offer timer for {cyclic_offer_delay_ms}ms")
-                self._offer_timers[cyclic_offer_delay_ms] = SimplePeriodicTimer(
-                    cyclic_offer_delay_ms / 1000.0,
-                    functools.partial(self.offer_timer_callback, cyclic_offer_delay_ms),
-                )
-                self._offer_timers[cyclic_offer_delay_ms].start()
-
-        elif message_type == "stop_offer_service_req":
-            service_to_stop = SdService.from_json(message["service"])
-            (
-                session_id,
-                reboot_flag,
-            ) = self._mcast_session_handler.update_session()
-
-            sd_header = build_stop_offer_service_sd_header(
-                [service_to_stop], session_id, reboot_flag
-            )
-            buffer = sd_header.to_buffer()
-
-            if self.ucast_transport:
-                self.ucast_transport.sendto(buffer, (self.sd_address, self.sd_port))
-
-            # Remove the service from the storage
-            self._services_to_offer.remove_service(service_to_stop)
-            self._cleanup_unused_timers()
+            if asyncio.iscoroutinefunction(handler):
+                await handler(message, writer_id)
+                return
+            else:
+                handler(message, writer_id)
+                return
 
         elif message_type == "get_eventgroup_subscriptions_req":
             for sub in self._service_subscribers.values():
@@ -560,11 +552,9 @@ class SomeipDaemon:
             )
 
         else:
-            if id(writer) in self._rx_queues:
-                # If the message is not handled immediately, put it in the rx queue for the client
-                self._rx_queues[id(writer)].put_nowait(message)
-            else:
-                self.logger.error(f"No rx queue for client {id(writer)} available.")
+            self.logger.warning(
+                f"Received unknown message type: {message_type}. Message: {message}"
+            )
 
     def _handle_client_message_subscribe_eventgroup_ready_res(
         self, message: SubscribeEventgroupReadyResponse
@@ -612,12 +602,182 @@ class SomeipDaemon:
                     (service_endpoint_ip, self.sd_port),
                 )
 
-    def offer_timer_callback(self, cyclic_offer_delay_ms: int):
+    async def _handle_offer_service_request(
+        self, message: OfferServiceRequest, writer_id: int
+    ):
+        method_strs = message.get("method_list", [])
+        methods = [Method.from_json(m) for m in method_strs]
 
+        service_to_add = ServiceToOffer(
+            client_writer_id=writer_id,
+            instance_id=message["instance_id"],
+            service_id=message["service_id"],
+            major_version=message["major_version"],
+            minor_version=message["minor_version"],
+            offer_ttl_seconds=message["ttl"],
+            cyclic_offer_delay_ms=message["cyclic_offer_delay_ms"],
+            endpoint_ip=message["endpoint_ip"],
+            endpoint_port=message["endpoint_port"],
+            methods=methods,
+        )
+
+        self._services_to_offer.add_service(service_to_add)
+
+        # Check if there is already an endpoint for the ip and port, if not, open a new endpoint
+        if service_to_add.has_udp:
+            if not self._someip_endpoints.has_endpoint(
+                service_to_add.endpoint_ip,
+                service_to_add.endpoint_port,
+                TransportLayerProtocol.UDP,
+            ):
+                self.logger.debug(
+                    f"Creating new UDP endpoint for {service_to_add.endpoint_ip}:{service_to_add.endpoint_port}"
+                )
+
+                udp_endpoint = await self._create_server_endpoint(
+                    service_to_add.endpoint_ip,
+                    service_to_add.endpoint_port,
+                    TransportLayerProtocol.UDP,
+                )
+                self._someip_endpoints.add_endpoint(writer_id, udp_endpoint)
+
+        if service_to_add.has_tcp:
+            if not self._someip_endpoints.has_endpoint(
+                service_to_add.endpoint_ip,
+                service_to_add.endpoint_port,
+                TransportLayerProtocol.TCP,
+            ):
+                self.logger.debug(
+                    f"Creating new TCP endpoint for {service_to_add.endpoint_ip}:{service_to_add.endpoint_port}"
+                )
+
+                tcp_endpoint = await self._create_server_endpoint(
+                    service_to_add.endpoint_ip,
+                    service_to_add.endpoint_port,
+                    TransportLayerProtocol.TCP,
+                )
+                self._someip_endpoints.add_endpoint(writer_id, tcp_endpoint)
+
+        cyclic_offer_delay_ms = message["cyclic_offer_delay_ms"]
+
+        # If there is no timer running for the interval yet, create a new timer task
+        if cyclic_offer_delay_ms not in self._offer_timers:
+            self.logger.debug(f"Starting offer timer for {cyclic_offer_delay_ms}ms")
+            self._offer_timers[cyclic_offer_delay_ms] = SimplePeriodicTimer(
+                cyclic_offer_delay_ms / 1000.0,
+                functools.partial(self.offer_timer_callback, cyclic_offer_delay_ms),
+            )
+            self._offer_timers[cyclic_offer_delay_ms].start()
+
+    def _handle_stop_offer_service_request(
+        self, message: StopOfferServiceRequest, writer_id: int
+    ):
+        method_strs = message.get("method_list", [])
+        methods = [Method.from_json(m) for m in method_strs]
+
+        service_to_stop = ServiceToOffer(
+            client_writer_id=writer_id,
+            instance_id=message["instance_id"],
+            service_id=message["service_id"],
+            major_version=message["major_version"],
+            minor_version=message["minor_version"],
+            offer_ttl_seconds=message["ttl"],
+            cyclic_offer_delay_ms=message["cyclic_offer_delay_ms"],
+            endpoint_ip=message["endpoint_ip"],
+            endpoint_port=message["endpoint_port"],
+            methods=methods,
+        )
+
+        # Remove the service from the storage
+        self._services_to_offer.remove_service(service_to_stop)
+        self._cleanup_unused_timers()
+
+        (
+            session_id,
+            reboot_flag,
+        ) = self._mcast_session_handler.update_session()
+
+        sd_header = build_stop_offer_service_sd_header(
+            [service_to_stop], session_id, reboot_flag
+        )
+        buffer = sd_header.to_buffer()
+        if self.ucast_transport:
+            self.logger.debug(
+                f"Send stop offer message for service 0x{service_to_stop.service_id:04x}, instance 0x{service_to_stop.instance_id:04x} to {self.sd_address}:{self.sd_port}"
+            )
+            self.ucast_transport.sendto(buffer, (self.sd_address, self.sd_port))
+
+        if service_to_stop.has_udp:
+            try:
+                udp_endpoint = self._someip_endpoints.get_endpoint(
+                    writer_id, TransportLayerProtocol.UDP
+                )
+                if udp_endpoint:
+                    self.logger.debug(
+                        f"Closing UDP endpoint for {service_to_stop.endpoint_ip}:{service_to_stop.endpoint_port}"
+                    )
+                    udp_endpoint.shutdown()
+                    self._someip_endpoints.remove_endpoint(writer_id, udp_endpoint)
+            except Exception as e:
+                self.logger.error(
+                    f"Error closing UDP endpoint for {service_to_stop.endpoint_ip}:{service_to_stop.endpoint_port}: {e}"
+                )
+
+        if service_to_stop.has_tcp:
+            try:
+                tcp_endpoint = self._someip_endpoints.get_endpoint(
+                    writer_id, TransportLayerProtocol.TCP
+                )
+                if tcp_endpoint:
+                    self.logger.debug(
+                        f"Closing TCP endpoint for {service_to_stop.endpoint_ip}:{service_to_stop.endpoint_port}"
+                    )
+                    tcp_endpoint.shutdown()
+                    self._someip_endpoints.remove_endpoint(writer_id, tcp_endpoint)
+            except Exception as e:
+                self.logger.error(
+                    f"Error closing TCP endpoint for {service_to_stop.endpoint_ip}:{service_to_stop.endpoint_port}: {e}"
+                )
+
+    def _handle_call_method_response(self, message: CallMethodResponse, writer_id: int):
+        self.logger.debug(f"Received CallMethodResponse: {message}")
+
+        header = SomeIpHeader(
+            service_id=message["service_id"],
+            method_id=message["method_id"],
+            length=0,
+            client_id=message["client_id"],
+            session_id=message["session_id"],
+            protocol_version=message["protocol_version"],
+            interface_version=message["interface_version"],
+            message_type=message["message_type"],
+            return_code=message["return_code"],
+        )
+
+        payload_decoded = base64.b64decode(message["payload"])
+        header.length = 8 + len(payload_decoded)
+
+        endpoint = self._someip_endpoints.get_endpoint(
+            writer_id, TransportLayerProtocol(message["protocol"])
+        )
+        self.logger.debug(
+            f"Sending CallMethodResponse to {message['src_endpoint_ip']}:{message['src_endpoint_port']}"
+        )
+
+        print(header)
+        if endpoint:
+            endpoint.sendto(
+                header.to_buffer() + payload_decoded,
+                (message["src_endpoint_ip"], message["src_endpoint_port"]),
+            )
+
+    def offer_timer_callback(self, cyclic_offer_delay_ms: int):
         self.logger.debug(f"Offer timer callback for {cyclic_offer_delay_ms}ms")
 
-        services_to_offer = self._services_to_offer.get_services_by_cyclic_offer_delay(
-            cyclic_offer_delay_ms
+        services_to_offer: List[ServiceToOffer] = (
+            self._services_to_offer.services_by_cyclic_offer_delay(
+                cyclic_offer_delay_ms
+            )
         )
         if len(services_to_offer) > 0:
             (

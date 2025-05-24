@@ -14,7 +14,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import ipaddress
-from typing import Iterable, Tuple
+from typing import Iterable, List, Tuple
+from someipy._internal.offer_service_storage import ServiceToOffer
 from someipy._internal.someip_header import SomeIpHeader
 from .transport_layer_protocol import TransportLayerProtocol
 from .someip_sd_header import (
@@ -34,56 +35,90 @@ from .someip_sd_header import (
 
 
 def build_offer_service_sd_header(
-    services_to_offer: Iterable[SdService], session_id: int, reboot_flag: bool
+    services_to_offer: Iterable[ServiceToOffer], session_id: int, reboot_flag: bool
 ) -> SomeIpSdHeader:
-    # Remove duplicates
-    services_to_offer = list(set(services_to_offer))
-
     # Collect all endpoints and create an option for each unique endpoint
-    options = []
+    options: List[SdIPV4EndpointOption] = []
     for service in services_to_offer:
 
-        # Check if endpoint is already contained in options
-        if any(
-            option.ipv4_address == service.endpoint[0]
-            and option.port == service.endpoint[1]
-            and option.protocol == service.protocol
-            for option in options
-        ):
-            continue
+        if service.has_tcp:
+            # Check if endpoint is already contained in options
+            if any(
+                option.ipv4_address == ipaddress.IPv4Address(service.endpoint_ip)
+                and option.port == service.endpoint_port
+                and option.protocol == TransportLayerProtocol.TCP
+                for option in options
+            ):
+                continue
 
-        option_entry_common = SdOptionCommon(
-            length=SD_IPV4ENDPOINT_OPTION_LENGTH_VALUE,
-            type=SdOptionType.IPV4_ENDPOINT,
-            discardable_flag=False,
-        )
-        sd_option_entry = SdIPV4EndpointOption(
-            sd_option_common=option_entry_common,
-            ipv4_address=service.endpoint[0],
-            protocol=service.protocol,
-            port=service.endpoint[1],
-        )
-        options.append(sd_option_entry)
+            option_entry_common = SdOptionCommon(
+                length=SD_IPV4ENDPOINT_OPTION_LENGTH_VALUE,
+                type=SdOptionType.IPV4_ENDPOINT,
+                discardable_flag=False,
+            )
+            sd_option_entry = SdIPV4EndpointOption(
+                sd_option_common=option_entry_common,
+                ipv4_address=ipaddress.IPv4Address(service.endpoint_ip),
+                protocol=TransportLayerProtocol.TCP,
+                port=service.endpoint_port,
+            )
+            options.append(sd_option_entry)
+
+        if service.has_udp:
+            # Check if endpoint is already contained in options
+            if any(
+                option.ipv4_address == ipaddress.IPv4Address(service.endpoint_ip)
+                and option.port == service.endpoint_port
+                and option.protocol == TransportLayerProtocol.UDP
+                for option in options
+            ):
+                continue
+
+            option_entry_common = SdOptionCommon(
+                length=SD_IPV4ENDPOINT_OPTION_LENGTH_VALUE,
+                type=SdOptionType.IPV4_ENDPOINT,
+                discardable_flag=False,
+            )
+            sd_option_entry = SdIPV4EndpointOption(
+                sd_option_common=option_entry_common,
+                ipv4_address=ipaddress.IPv4Address(service.endpoint_ip),
+                protocol=TransportLayerProtocol.UDP,
+                port=service.endpoint_port,
+            )
+            options.append(sd_option_entry)
 
     # Build the entries that reference the options
     entries = []
     for service in services_to_offer:
+        num_options_1 = 2 if service.has_tcp and service.has_udp else 1
         for i in range(len(options)):
+
+            # Loop through all options and check if the endpoint matches, then the index of the first option is found
+            # Depending on whether only one protocol or two are used, the num_options_1 is set to 1 or 2
             if (
-                options[i].ipv4_address == service.endpoint[0]
-                and options[i].port == service.endpoint[1]
-                and options[i].protocol == service.protocol
+                options[i].ipv4_address == ipaddress.IPv4Address(service.endpoint_ip)
+                and options[i].port == service.endpoint_port
+                and (
+                    (
+                        options[i].protocol == TransportLayerProtocol.UDP
+                        and service.has_udp
+                    )
+                    or (
+                        options[i].protocol == TransportLayerProtocol.TCP
+                        and service.has_tcp
+                    )
+                )
             ):
                 sd_entry = SdEntry(
                     SdEntryType.OFFER_SERVICE,
                     i,  # index_first_option
                     0,  # index_second_option
-                    1,  # num_options_1
+                    num_options_1,  # num_options_1
                     0,  # num_options_2
                     service.service_id,
                     service.instance_id,
                     service.major_version,
-                    service.ttl,
+                    service.offer_ttl_seconds,
                 )
                 service_entry = SdServiceEntry(
                     sd_entry=sd_entry, minor_version=service.minor_version
