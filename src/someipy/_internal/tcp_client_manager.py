@@ -1,15 +1,15 @@
 # Copyright (C) 2024 Christian H.
-# 
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
@@ -19,6 +19,7 @@ from typing import Callable, Dict, Iterable, Tuple
 
 from someipy._internal.someip_message import SomeIpMessage
 from someipy._internal.someip_data_processor import SomeipDataProcessor
+from someipy._internal.transport_layer_protocol import TransportLayerProtocol
 
 
 class TcpClientProtocolInterface(ABC):
@@ -69,9 +70,14 @@ class TcpClientManagerInterface(ABC):
 
 class TcpClientManager(TcpClientManagerInterface):
 
-    def __init__(self):
+    def __init__(self, ip: str, port: int):
+        self._ip = ip
+        self._port = port
         self._clients: Dict[str, TcpClientProtocolInterface] = {}
-        self._someip_callback: Callable[[SomeIpMessage, Tuple[str, int]], None] = None
+        self._someip_callback: Callable[
+            [SomeIpMessage, Tuple[str, int], Tuple[str, int], TransportLayerProtocol],
+            None,
+        ] = None
 
     def _build_key(self, ip_addr: str, port: int) -> str:
         return f"{ip_addr}-{port}"
@@ -95,11 +101,23 @@ class TcpClientManager(TcpClientManagerInterface):
     def someip_callback(
         self, client: TcpClientProtocolInterface, someip_message: SomeIpMessage
     ) -> None:
+        """
+        This function is called by a TCP client when a SOME/IP message was received.
+        """
         if self._someip_callback is not None:
-            self._someip_callback(someip_message, (client.ip_addr, client.port))
+            self._someip_callback(
+                someip_message,
+                (client.ip_addr, client.port),
+                (self._ip, self._port),
+                TransportLayerProtocol.TCP,
+            )
 
     def register_callback(
-        self, callback: Callable[[SomeIpMessage, Tuple[str, int]], None]
+        self,
+        callback: Callable[
+            [SomeIpMessage, Tuple[str, int], Tuple[str, int], TransportLayerProtocol],
+            None,
+        ],
     ) -> None:
         self._someip_callback = callback
 
