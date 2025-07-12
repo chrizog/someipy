@@ -12,7 +12,7 @@ from someipy.someipy_logging import set_someipy_log_level
 from someipy.serialization import Sint32
 from addition_method_parameters import Addends, Sum
 
-DEFAULT_INTERFACE_IP = "127.0.0.2"  # Default IP if not provided
+DEFAULT_INTERFACE_IP = "127.0.0.1"  # Default IP if not provided
 
 SAMPLE_SERVICE_ID = 0x1234
 SAMPLE_INSTANCE_ID = 0x5678

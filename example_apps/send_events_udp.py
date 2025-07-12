@@ -1,5 +1,4 @@
 import asyncio
-import ipaddress
 import logging
 import sys
 
@@ -7,19 +6,20 @@ from someipy import (
     TransportLayerProtocol,
     ServiceBuilder,
     EventGroup,
-    construct_server_service_instance,
     connect_to_someipy_daemon,
 )
+from someipy.server_service_instance import ServerServiceInstance
+from someipy.service import Event
 from someipy.someipy_logging import set_someipy_log_level
 from someipy.serialization import Uint8, Uint64, Float32
 from temperature_msg import TemparatureMsg
 
 DEFAULT_INTERFACE_IP = "127.0.0.1"  # Default IP if not provided
 
-SAMPLE_SERVICE_ID = 0x1234
-SAMPLE_INSTANCE_ID = 0x5678
-SAMPLE_EVENTGROUP_ID = 0x0321
-SAMPLE_EVENT_ID = 0x0123
+SAMPLE_SERVICE_ID = 0x1234  # dec 4660
+SAMPLE_INSTANCE_ID = 0x5678  # dec 22136
+SAMPLE_EVENTGROUP_ID = 0x0321  # dec 801
+SAMPLE_EVENT_ID = 0x0123  # dec 291
 
 
 async def main():
@@ -36,9 +36,12 @@ async def main():
 
     someipy_daemon = await connect_to_someipy_daemon()
 
+    temperature_event = Event(id=SAMPLE_EVENT_ID, protocol=TransportLayerProtocol.UDP)
+
     temperature_eventgroup = EventGroup(
-        id=SAMPLE_EVENTGROUP_ID, event_ids=[SAMPLE_EVENT_ID]
+        id=SAMPLE_EVENTGROUP_ID, events=[temperature_event]
     )
+
     temperature_service = (
         ServiceBuilder()
         .with_service_id(SAMPLE_SERVICE_ID)
@@ -48,17 +51,14 @@ async def main():
     )
 
     # For sending events use a ServerServiceInstance
-    service_instance_temperature = await construct_server_service_instance(
-        temperature_service,
-        instance_id=SAMPLE_INSTANCE_ID,
-        endpoint=(
-            ipaddress.IPv4Address(interface_ip),
-            3000,
-        ),  # src IP and port of the service
-        ttl=5,
+    service_instance_temperature = ServerServiceInstance(
         daemon=someipy_daemon,
+        service=temperature_service,
+        instance_id=SAMPLE_INSTANCE_ID,
+        endpoint_ip=interface_ip,
+        endpoint_port=3000,
+        ttl=5,
         cyclic_offer_delay_ms=2000,
-        protocol=TransportLayerProtocol.UDP,
     )
 
     # After constructing a ServerServiceInstances the start_offer method has to be called. This will start an internal timer,
@@ -69,7 +69,7 @@ async def main():
     tmp_msg = TemparatureMsg()
 
     # Reminder: Do NOT use "tmp_msg.version.major = 1". Always use the provided classes in someipy like Uint8,
-    # so that the data can be propery serialized. Python literals won't be serialized properly
+    # so that the data can be properly serialized. Python literals won't be serialized properly
     tmp_msg.version.major = Uint8(1)
     tmp_msg.version.minor = Uint8(0)
 
@@ -84,7 +84,7 @@ async def main():
             await asyncio.sleep(1)
             tmp_msg.timestamp = Uint64(tmp_msg.timestamp.value + 1)
             payload = tmp_msg.serialize()
-            await service_instance_temperature.send_event(
+            service_instance_temperature.send_event(
                 SAMPLE_EVENTGROUP_ID, SAMPLE_EVENT_ID, payload
             )
 

@@ -3,7 +3,7 @@ from test_base import TestBase
 
 class TestOfferMethodTcp(TestBase):
 
-    def __init__(self, repository, ld_library_path=None, interface_ip="127.0.0.1"):
+    def __init__(self, repository, ld_library_path=None, interface_ip="127.0.0.2"):
         super().__init__()
 
         self.ld_library_path = ld_library_path
@@ -13,9 +13,17 @@ class TestOfferMethodTcp(TestBase):
         self.someipy_app = [
             "python3",
             f"{repository}/example_apps/offer_method_tcp.py",
-            f"--interface_ip {interface_ip}",
+            f"--interface_ip",
+            f"{interface_ip}",
         ]
         self.vsomeip_config = f"{repository}/integration_tests/install/offer_method_tcp/vsomeip-client.json"
+
+        self.someipydaemon_app = [
+            "python3",
+            f"{repository}/src/someipy/someipyd.py",
+            "--config",
+            f"{repository}/src/someipy/someipyd.json",
+        ]
 
     def evaluate(self) -> bool:
         method_calls = 0

@@ -1,5 +1,5 @@
 from typing import List
-from someipy.service import Method
+from someipy.service import Event, EventGroup, Method
 from someipy._internal.transport_layer_protocol import TransportLayerProtocol
 
 
@@ -16,6 +16,7 @@ class ServiceToOffer:
         endpoint_ip: str,
         endpoint_port: int,
         methods: List[Method],
+        eventgroups: List[EventGroup],
     ):
         self.client_writer_id = client_writer_id
         self.instance_id = instance_id
@@ -27,6 +28,8 @@ class ServiceToOffer:
         self.endpoint_ip = endpoint_ip
         self.endpoint_port = endpoint_port
         self.methods = methods
+        self.eventgroups = eventgroups
+        self.last_offer_time = None  # Placeholder for last offer time
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ServiceToOffer):
@@ -42,6 +45,7 @@ class ServiceToOffer:
             and self.endpoint_ip == other.endpoint_ip
             and self.endpoint_port == other.endpoint_port
             and self.methods == other.methods
+            and self.eventgroups == other.eventgroups
         )
 
     def __hash__(self) -> int:
@@ -57,28 +61,47 @@ class ServiceToOffer:
                 self.endpoint_ip,
                 self.endpoint_port,
                 tuple(self.methods),  # Convert list to tuple for hashing
+                tuple(self.eventgroups),  # Convert list to tuple for hashing
             )
         )
 
     @property
     def has_udp(self) -> bool:
-        return (
-            any(
-                method.protocol == TransportLayerProtocol.UDP for method in self.methods
-            )
-            if self.methods
-            else False
+        has_method_udp = any(
+            method.protocol == TransportLayerProtocol.UDP for method in self.methods
         )
+
+        events = [event for eg in self.eventgroups for event in eg.events]
+        has_event_udp = any(
+            event.protocol == TransportLayerProtocol.UDP for event in events
+        )
+        return has_method_udp or has_event_udp
 
     @property
     def has_tcp(self) -> bool:
-        return (
-            any(
-                method.protocol == TransportLayerProtocol.TCP for method in self.methods
-            )
-            if self.methods
-            else False
+        has_method_tcp = any(
+            method.protocol == TransportLayerProtocol.TCP for method in self.methods
         )
+
+        events = [event for eg in self.eventgroups for event in eg.events]
+        has_event_tcp = any(
+            event.protocol == TransportLayerProtocol.TCP for event in events
+        )
+        return has_method_tcp or has_event_tcp
+
+    @property
+    def eventgroup_ids(self) -> List[int]:
+        """Returns a list of all eventgroup IDs from the stored eventgroups"""
+        return [eventgroup.id for eventgroup in self.eventgroups]
+
+    @property
+    def protocols(self) -> frozenset[TransportLayerProtocol]:
+        result = set()
+        if self.has_udp:
+            result.add(TransportLayerProtocol.UDP)
+        if self.has_tcp:
+            result.add(TransportLayerProtocol.TCP)
+        return frozenset(result)
 
 
 class OfferServiceStorage:

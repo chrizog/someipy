@@ -15,7 +15,9 @@ class TestBase:
         self.vsomeip_app = None
         self.vsomeip_config = None
         self.someipy_app = None
+        self.someipydaemon_app = "someipyd"
 
+        self.output_daemon = None
         self.output_someipy_app = None
         self.output_vsomeip_app = None
 
@@ -28,6 +30,10 @@ class TestBase:
         if self.ld_library_path is not None:
             env["LD_LIBRARY_PATH"] = self.ld_library_path
 
+        thread_daemon, output_queue_daemon = self.run_in_thread(
+            self.someipydaemon_app, duration + 1.0, env
+        )
+
         thread_vsomeip, output_queue_vsomeip = self.run_in_thread(
             self.vsomeip_app, duration, env
         )
@@ -36,13 +42,17 @@ class TestBase:
             self.someipy_app, duration, env
         )
 
+        thread_daemon.start()
         thread_vsomeip.start()
         thread_python.start()
+
         thread_vsomeip.join()
         thread_python.join()
+        thread_daemon.join()
 
         self.output_vsomeip_app = list(output_queue_vsomeip.queue)
         self.output_someipy_app = list(output_queue_python.queue)
+        self.output_daemon = list(output_queue_daemon.queue)
 
     def start_process(self, command, output_queue, env, timeout=5):
         """Starts a subprocess and puts its stdout lines in a queue."""
@@ -63,8 +73,6 @@ class TestBase:
                 line = process.stdout.readline().decode().strip()
                 if line:
                     output_queue.put(line)
-                else:
-                    break  # No more output available
 
         process.send_signal(signal.SIGINT)
 
@@ -95,6 +103,11 @@ class TestBase:
         print("-------- Output from someipy app --------")
         for l in self.output_someipy_app:
             print(l)
+
         print("-------- Output from vsomeip app --------")
         for l in self.output_vsomeip_app:
+            print(l)
+
+        print("-------- Output from someipy daemon --------")
+        for l in self.output_daemon:
             print(l)

@@ -10,6 +10,7 @@
 #define SAMPLE_INSTANCE_ID_2 0x6789
 #define SAMPLE_EVENTGROUP_ID 0x0321
 #define SAMPLE_EVENT_ID 0x0123
+#define MAJOR_VERSION 1
 
 std::shared_ptr<vsomeip::application> app;
 std::mutex mutex;
@@ -31,20 +32,21 @@ void run()
         std::set<vsomeip::eventgroup_t> its_groups;
         its_groups.insert(SAMPLE_EVENTGROUP_ID);
 
-        if (service_instance_available_1) {
+        if (service_instance_available_1)
+        {
             app->request_event(SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID_1, SAMPLE_EVENT_ID, its_groups);
-            app->subscribe(SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID_1, SAMPLE_EVENTGROUP_ID);
+            app->subscribe(SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID_1, SAMPLE_EVENTGROUP_ID, MAJOR_VERSION);
             service_instance_available_1 = false;
         }
 
-        if (service_instance_available_2) {
+        if (service_instance_available_2)
+        {
             app->request_event(SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID_2, SAMPLE_EVENT_ID, its_groups);
-            app->subscribe(SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID_2, SAMPLE_EVENTGROUP_ID);
+            app->subscribe(SAMPLE_SERVICE_ID, SAMPLE_INSTANCE_ID_2, SAMPLE_EVENTGROUP_ID, MAJOR_VERSION);
             service_instance_available_2 = false;
         }
 
         its_lock.unlock();
-
     }
 }
 
