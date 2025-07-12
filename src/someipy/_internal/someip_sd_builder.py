@@ -14,7 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import ipaddress
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Set, Tuple
 from someipy._internal.offer_service_storage import ServiceToOffer
 from someipy._internal.someip_header import SomeIpHeader
 from .transport_layer_protocol import TransportLayerProtocol
@@ -214,13 +214,13 @@ def build_subscribe_eventgroup_sd_header(
     session_id: int,
     reboot_flag: bool,
     endpoint: Tuple[ipaddress.IPv4Address, int],
-    protocol: TransportLayerProtocol,
+    protocols: Set[TransportLayerProtocol],
 ) -> SomeIpSdHeader:
     sd_entry: SdEntry = SdEntry(
         SdEntryType.SUBSCRIBE_EVENT_GROUP,
         0,  # index_first_option
         0,  # index_second_option
-        1,  # num_options_1
+        len(protocols),  # num_options_1
         0,  # num_options_2
         service_id,
         instance_id,
@@ -239,20 +239,30 @@ def build_subscribe_eventgroup_sd_header(
         type=SdOptionType.IPV4_ENDPOINT,
         discardable_flag=False,
     )
-    sd_option_entry = SdIPV4EndpointOption(
-        sd_option_common=option_entry_common,
-        ipv4_address=endpoint[0],
-        protocol=protocol,
-        port=endpoint[1],
-    )
+
+    options = []
+    for protocol in protocols:
+        if protocol not in (TransportLayerProtocol.TCP, TransportLayerProtocol.UDP):
+            raise ValueError(
+                f"Unsupported protocol {protocol} for SD IPV4 Endpoint option."
+            )
+
+        # Create an option for each protocol
+        sd_option_entry = SdIPV4EndpointOption(
+            sd_option_common=option_entry_common,
+            ipv4_address=endpoint[0],
+            protocol=protocol,
+            port=endpoint[1],
+        )
+        options.append(sd_option_entry)
 
     # 20 bytes for header and length values of entries and options
     # + length of entries array (1 entry)
-    # + length of options array (1 option)
+    # + length of options array
     total_length = (
         20
         + (1 * SD_SINGLE_ENTRY_LENGTH_BYTES)
-        + (1 * SD_BYTE_LENGTH_IP4ENDPOINT_OPTION)
+        + (len(options) * SD_BYTE_LENGTH_IP4ENDPOINT_OPTION)
     )
     someip_header = SomeIpHeader.generate_sd_header(
         length=total_length, session_id=session_id
@@ -263,9 +273,9 @@ def build_subscribe_eventgroup_sd_header(
         reboot_flag=reboot_flag,
         unicast_flag=True,
         length_entries=(1 * SD_SINGLE_ENTRY_LENGTH_BYTES),
-        length_options=(1 * SD_BYTE_LENGTH_IP4ENDPOINT_OPTION),
+        length_options=(len(options) * SD_BYTE_LENGTH_IP4ENDPOINT_OPTION),
         service_entries=[entry],
-        options=[sd_option_entry],
+        options=options,
     )
 
 

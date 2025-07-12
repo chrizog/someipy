@@ -13,9 +13,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import base64
 from typing import List
 from someipy._internal.daemon_client_abcs import ServerInstanceInterface
 from someipy._internal.someipy_daemon_client import SomeIpDaemonClient
+from someipy._internal.uds_messages import create_uds_message, SendEventRequest
 from someipy.service import EventGroup, Method, Service
 
 from someipy._internal.logging import get_logger
@@ -78,6 +80,42 @@ class ServerServiceInstance(ServerInstanceInterface):
             methods=methods,
             cyclic_offer_delay_ms=self._cyclic_offer_delay_ms,
         )
+
+    def send_event(self, eventgroup_id: int, event_id: int, payload: bytes):
+        if not eventgroup_id in self._service.eventgroupids:
+            raise ValueError(
+                f"Event group ID {eventgroup_id} not found in service 0x{self._service.id:04X}"
+            )
+
+        eventgroup = self._service.eventgroups[eventgroup_id]
+        events = [event for event in eventgroup.events if event.id == event_id]
+        if not events:
+            raise ValueError(
+                f"Event ID {event_id} not found in event group 0x{eventgroup_id:04X} of service 0x{self._service.id:04X}"
+            )
+        if len(events) > 1:
+            raise ValueError(
+                f"Multiple events with ID {event_id} found in event group 0x{eventgroup_id:04X} of service 0x{self._service.id:04X}"
+            )
+        event = events[0]
+
+        base64_encoded_payload = base64.b64encode(payload).decode("utf-8")
+
+        message = create_uds_message(
+            SendEventRequest,
+            service_id=self._service.id,
+            instance_id=self._instance_id,
+            major_version=self._service.major_version,
+            client_id=1,  # TODO: Client ID
+            session_id=1,  # TODO: Session ID
+            eventgroup_id=eventgroup_id,
+            event=event.to_json(),
+            src_endpoint_ip=self._endpoint_ip,
+            src_endpoint_port=self._endpoint_port,
+            payload=base64_encoded_payload,
+        )
+
+        self._daemon.transmit_message_to_daemon(message)
 
     @property
     def service(self) -> Service:

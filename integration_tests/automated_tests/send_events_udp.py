@@ -10,20 +10,29 @@ class TestSendEventsUdp(TestBase):
         self.vsomeip_app = [
             f"{repository}/integration_tests/install/send_events/send_events"
         ]
+
         self.someipy_app = [
             "python3",
             f"{repository}/example_apps/send_events_udp.py",
-            f"--interface_ip {interface_ip}",
+            f"--interface_ip",
+            f"{interface_ip}",
         ]
         self.vsomeip_config = (
             f"{repository}/integration_tests/install/send_events/vsomeip-client.json"
         )
 
+        self.someipydaemon_app = [
+            "python3",
+            f"{repository}/src/someipy/someipyd.py",
+            "--config",
+            f"{repository}/src/someipy/someipyd.json",
+        ]
+
     def evaluate(self) -> bool:
         sent_events = 0
         received_events = 0
         for l in self.output_someipy_app:
-            if "Send event for instance" in l:
+            if "Transmitting message: {'type': 'SendEventRequest'" in l:
                 sent_events += 1
 
         for l in self.output_vsomeip_app:

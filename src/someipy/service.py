@@ -35,6 +35,16 @@ class Method:
     protocol: TransportLayerProtocol
     method_handler: MethodHandler
 
+    def __init__(
+        self,
+        id: int,
+        protocol: TransportLayerProtocol,
+        method_handler: MethodHandler = None,
+    ):
+        self.id = id
+        self.protocol = protocol
+        self.method_handler = method_handler
+
     def __eq__(self, __value: object) -> bool:
         return self.id == __value.id and self.protocol == __value.protocol
 
@@ -75,9 +85,7 @@ class Event:
     @classmethod
     def from_json(cls: _T, json_str: str) -> _T:
         json_dict = json.loads(json_str)
-        o = cls()
-        o.id = int(json_dict["id"])
-        o.protocol = TransportLayerProtocol(json_dict["protocol"])
+        o = cls(int(json_dict["id"]), TransportLayerProtocol(json_dict["protocol"]))
         return o
 
 
@@ -96,6 +104,41 @@ class EventGroup:
             "events": [event.to_json() for event in self.events],
         }
         return json.dumps(as_dict)
+
+    @classmethod
+    def from_json(cls: _T, json_str: str) -> _T:
+        json_dict = json.loads(
+            json_str
+        )  # Contains a dictionary with "id" (int) and "events" (serialized Event)
+        events = [Event.from_json(event_json) for event_json in json_dict["events"]]
+
+        o: EventGroup = cls(int(json_dict["id"]), events)
+        return o
+
+    def __hash__(self):
+        return hash((self.id, tuple(event.id for event in self.events)))
+
+    @property
+    def has_udp(self) -> bool:
+        """
+        Checks if the event group contains any events with UDP protocol.
+
+        :return: True if at least one event uses UDP, False otherwise.
+        """
+        return any(
+            event.protocol == TransportLayerProtocol.UDP for event in self.events
+        )
+
+    @property
+    def has_tcp(self) -> bool:
+        """
+        Checks if the event group contains any events with TCP protocol.
+
+        :return: True if at least one event uses TCP, False otherwise.
+        """
+        return any(
+            event.protocol == TransportLayerProtocol.TCP for event in self.events
+        )
 
 
 @dataclass

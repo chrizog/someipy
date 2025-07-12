@@ -14,83 +14,93 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+import base64
+from dataclasses import dataclass
 from typing import Dict, Tuple, Callable
 
 from someipy import Service
 from someipy._internal.daemon_client_abcs import ClientInstanceInterface
 from someipy._internal.method_result import MethodResult
-from someipy._internal.someip_data_processor import SomeipDataProcessor
-from someipy._internal.someip_sd_header import (
-    SdService,
-    TransportLayerProtocol,
-)
-from someipy._internal.someip_header import (
-    SomeIpHeader,
-)
+from someipy._internal.someip_sd_header import SdService
 from someipy._internal.someipy_daemon_client import SomeIpDaemonClient
-from someipy._internal.store_with_timeout import StoreWithTimeout
 from someipy._internal.uds_messages import (
-    SubscribeEventgroupReadyRequest,
-    SubscribeEventgroupReadyResponse,
+    OutboundCallMethodRequest,
+    OutboundCallMethodResponse,
+    ReceivedEvent,
+    StopSubscribeEventGroupRequest,
+    SubscribeEventGroupRequest,
     create_uds_message,
 )
-from someipy._internal.utils import (
-    create_udp_socket,
-    EndpointType,
-)
+
 from someipy._internal.logging import get_logger
 from someipy._internal.message_types import MessageType
 from someipy._internal.return_codes import ReturnCode
 from someipy._internal.someip_endpoint import (
-    SomeipEndpoint,
-    UDPSomeipEndpoint,
     SomeIpMessage,
 )
-from someipy._internal.tcp_connection import TcpConnection
+from someipy.service import EventGroup
 
 _logger_name = "client_service_instance"
+
+
+@dataclass
+class MethodCall:
+    service_id: int
+    method_id: int
+    client_id: int
+    session_id: int
+
+    def __hash__(self):
+        return hash(
+            (
+                self.service_id,
+                self.method_id,
+                self.client_id,
+                self.session_id,
+            )
+        )
 
 
 class ClientServiceInstance(ClientInstanceInterface):
 
     def __init__(
         self,
+        daemon: SomeIpDaemonClient,
         service: Service,
         instance_id: int,
-        endpoint: EndpointType,
-        protocol: TransportLayerProtocol,
-        someip_endpoint: SomeipEndpoint,
+        endpoint_ip: str,
+        endpoint_port: int,
         client_id: int = 0,
-        daemon: SomeIpDaemonClient = None,
     ):
+        self._daemon: SomeIpDaemonClient = daemon
         self._service: Service = service
         self._instance_id: int = instance_id
-        self._endpoint: EndpointType = endpoint
-        self._protocol: TransportLayerProtocol = protocol
-        self._someip_endpoint: SomeipEndpoint = someip_endpoint
+        self._endpoint_ip: str = endpoint_ip
+        self._endpoint_port: int = endpoint_port
+        self._client_id: int = client_id
 
         self._eventgroups_to_subscribe = set()
+        self._event_callback: Callable[[int, bytes], None] = None
 
-        self._event_callback: Callable[[SomeIpMessage], None] = None
-
-        self._tcp_connection: TcpConnection = None
-
-        self._tcp_connect_lock = asyncio.Lock()
-        self._tcp_task = None
-        self._tcp_connection_established_event = asyncio.Event()
-        self._shutdown_requested = False
-
-        self._offered_services = StoreWithTimeout()
-
-        self._subscription_active = False
-        self._method_call_futures: Dict[int, asyncio.Future] = {}
-        self._client_id = client_id
-
-        self._daemon = daemon
+        self._method_call_futures: Dict[MethodCall, asyncio.Future] = {}
 
         self._session_id: int = 0  # Starts from 1 to 0xFFFF
 
-    def register_callback(self, callback: Callable[[SomeIpMessage], None]) -> None:
+        self._daemon._client_service_instances.append(self)
+
+    @property
+    def service(self) -> Service:
+        return self._service
+
+    @property
+    def instance_id(self) -> int:
+        return self._instance_id
+
+    @property
+    def endpoint(self) -> Tuple[str, int]:
+        return (self._endpoint_ip, self._endpoint_port)
+
+    def register_callback(self, callback: Callable[[int, bytes], None]) -> None:
         """
         Register a callback function to be called when a SOME/IP event is received.
 
@@ -103,81 +113,59 @@ class ClientServiceInstance(ClientInstanceInterface):
         """
         self._event_callback = callback
 
-    async def service_found(self) -> bool:
-        """
-        Returns whether the service instance represented by the ClientServiceInstance has been offered by a server and was found.
-        """
-        found, _ = await self._service_found()
-        return found
+    def _event_data_received(self, message: ReceivedEvent) -> None:
+        if message["service_id"] != self._service.id:
+            return
 
-    async def _service_found(self) -> Tuple[bool, SdService]:
-        if self._daemon:
-            services = await self._daemon._get_offered_services()
-            for offered_service in services:
+        all_events = [
+            e for group in self._service.eventgroups.values() for e in group.events
+        ]
+        all_event_ids = [e.id for e in all_events]
 
-                if (
-                    self._instance_id != 0xFFFF
-                    and self._instance_id != offered_service.instance_id
-                ):
-                    # 0xFFFF allows to handle any instance ID
-                    continue
+        if message["event_id"] not in all_event_ids:
+            return
 
-                if self._service.major_version != offered_service.major_version:
-                    continue
+        if self._event_callback is not None:
+            decoded_payload = base64.b64decode(message["payload"])
+            self._event_callback(message["event_id"], decoded_payload)
 
-                if (
-                    self._service.minor_version != 0xFFFFFFFF
-                    and self._service.minor_version != offered_service.minor_version
-                ):
-                    # 0xFFFFFFFF allows to handle any minor version
-                    continue
+    def _method_call_data_received(self, message: OutboundCallMethodResponse) -> None:
 
-                # If this point is reached, the service has been found
-                return True, offered_service
+        method_call_key = MethodCall(
+            service_id=message["service_id"],
+            method_id=message["method_id"],
+            client_id=message["client_id"],
+            session_id=message["session_id"],
+        )
 
-        return False, None
+        if method_call_key not in self._method_call_futures.keys():
+            return
 
-    async def find_service(self, timeout: float = 10.0) -> bool:
-        """
-        Finds the service instDaemonClientSubjectance represented by the ClientServiceInstance.
+        if message["client_id"] != self._client_id:
+            return
 
-        Args:
-            timeout (float, optional): The timeout for the service to be found. Defaults to 10.0 seconds.
+        call_future = self._method_call_futures[method_call_key]
 
-        Returns:
-            bool: True if the service is found.
-
-        Raises:
-            RuntimeError: If the service is not found within the given timeout.
-        """
-        service_found, found_service = await self._service_found()
-        if not service_found:
-            error_msg = f"Service 0x{self._service.id:04X} with instance 0x{self._instance_id:04X} not found."
-            get_logger(_logger_name).error(error_msg)
-            raise RuntimeError(error_msg)
+        if call_future is not None:
+            decoded_payload = base64.b64decode(message["payload"])
+            result = MethodResult()
+            result.message_type = MessageType.RESPONSE
+            result.return_code = ReturnCode(message["return_code"])
+            result.payload = decoded_payload
+            call_future.set_result(result)
 
     async def call_method(self, method_id: int, payload: bytes) -> MethodResult:
-        """
-        Calls a method on the service instance represented by the ClientServiceInstance.
-
-        Args:
-            method_id (int): The ID of the method to call.
-            payload (bytes): The payload to send with the method call.
-
-        Returns:
-            MethodResult: The result of the method call which can contain an error or a successful result including the response payload.
-
-        Raises:
-            RuntimeError: If the TCP connection to the server cannot be established or if the server service has not been found yet.
-            asyncio.TimeoutError: If the method call times out, i.e. the server does not send back a response within one second.
-        """
-
         get_logger(_logger_name).debug(f"Trying to call method 0x{method_id:04X}")
 
-        service_found, found_service = await self._service_found()
-        if not service_found:
-            error_msg = f"Method 0x{method_id:04x} called, but service 0x{self._service.id:04X} with instance 0x{self._instance_id:04X} not found yet."
+        service: SdService = await self._daemon._find_service(
+            self._service.id,
+            self._instance_id,
+            self._service.major_version,
+            self._service.minor_version,
+        )
 
+        if service is None:
+            error_msg = f"Method 0x{method_id:04x} called, but service 0x{self._service.id:04X} with instance 0x{self._instance_id:04X} not found yet."
             get_logger(_logger_name).warning(error_msg)
             raise RuntimeError(error_msg)
 
@@ -185,82 +173,58 @@ class ClientServiceInstance(ClientInstanceInterface):
         self._session_id = (self._session_id + 1) % 0xFFFF
         session_id = self._session_id
 
-        header = SomeIpHeader(
-            service_id=self._service.id,
+        # Find method in self._service
+        method = self._service.methods.get(method_id, None)
+        protocol_to_use = method.protocol.value
+
+        # base64 encoded payload
+        payload_encoded = base64.b64encode(payload).decode("utf-8")
+
+        method_request = create_uds_message(
+            OutboundCallMethodRequest,
+            service_id=service.service_id,
+            instance_id=service.instance_id,
             method_id=method_id,
             client_id=self._client_id,
             session_id=session_id,
             protocol_version=0x01,
-            interface_version=self._service.major_version,
-            message_type=MessageType.REQUEST.value,
-            return_code=0x00,
-            length=len(payload) + 8,
+            major_version=service.major_version,
+            minor_version=service.minor_version,
+            dst_endpoint_ip=str(service.endpoint[0]),
+            dst_endpoint_port=service.endpoint[1],
+            src_endpoint_ip=self._endpoint_ip,
+            src_endpoint_port=self._endpoint_port,
+            protocol=protocol_to_use,
+            payload=payload_encoded,
         )
-        someip_message = SomeIpMessage(header, payload)
 
-        call_future = asyncio.get_running_loop().create_future()
-        self._method_call_futures[session_id] = call_future
+        method_call_key = MethodCall(
+            service_id=service.service_id,
+            method_id=method_id,
+            client_id=self._client_id,
+            session_id=session_id,
+        )
 
-        dst_address = found_service.endpoint[0]
-        dst_port = found_service.endpoint[1]
+        future = asyncio.Future()
+        self._method_call_futures[method_call_key] = future
 
-        if self._protocol == TransportLayerProtocol.TCP:
-            # In case of TCP, first try to connect to the TCP server
-            # [PRS_SOMEIP_00708] The TCP connection shall be opened by the client, when the
-            # first method call shall be transported or the client tries to receive the first notifications
-            if self._tcp_task is None:
-                get_logger(_logger_name).debug(
-                    f"Create new TCP task for client of 0x{self._instance_id:04X}, 0x{self._service.id:04X}"
-                )
-                self._tcp_task = asyncio.create_task(
-                    self.setup_tcp_connection(
-                        str(self._endpoint[0]),
-                        self._endpoint[1],
-                        str(dst_address),
-                        dst_port,
-                    )
-                )
-
-            try:
-                # Wait for two seconds until the connection is established, otherwise return an error
-                await asyncio.wait_for(self._tcp_connection_established_event.wait(), 2)
-            except asyncio.TimeoutError:
-                error_msg = (
-                    f"Cannot establish TCP connection to {dst_address}:{dst_port}."
-                )
-                get_logger(_logger_name).error(error_msg)
-                raise RuntimeError(error_msg)
-
-            if self._tcp_connection.is_open():
-                self._tcp_connection.writer.write(someip_message.serialize())
-            else:
-                error_msg = f"TCP connection to {dst_address}:{dst_port} is not opened."
-                get_logger(_logger_name).error(error_msg)
-                raise RuntimeError(error_msg)
-
-        else:
-            # In case of UDP, just send out the datagram and wait for the response
-            self._someip_endpoint.sendto(
-                someip_message.serialize(),
-                found_service.endpoint,
-            )
+        self._daemon.transmit_message_to_daemon(method_request)
 
         # After sending the method call wait for maximum 10 seconds
         try:
-            await asyncio.wait_for(call_future, 10.0)
+            await asyncio.wait_for(future, 10.0)
         except asyncio.TimeoutError:
 
             # Remove the call_future from self._method_call_futures
-            del self._method_call_futures[session_id]
+            del self._method_call_futures[method_call_key]
 
-            error_msg = (
+            get_logger(_logger_name).error(
                 f"Waiting on response for method call 0x{method_id:04X} timed out."
             )
-            get_logger(_logger_name).error(error_msg)
-            raise RuntimeError(error_msg)
+            raise
 
-        method_result = call_future.result()
-        del self._method_call_futures[session_id]
+        method_result = future.result()
+        del self._method_call_futures[method_call_key]
         return method_result
 
     def someip_message_received(
@@ -281,21 +245,21 @@ class ClientServiceInstance(ClientInstanceInterface):
             someip_message.header.message_type == MessageType.RESPONSE.value
             or someip_message.header.message_type == MessageType.ERROR.value
         ):
-            if someip_message.header.session_id not in self._method_call_futures.keys():
+
+            method_call_key = MethodCall(
+                service_id=someip_message.header.service_id,
+                method_id=someip_message.header.method_id,
+                client_id=someip_message.header.client_id,
+                session_id=someip_message.header.session_id,
+            )
+
+            if method_call_key not in self._method_call_futures.keys():
                 return
+
             if someip_message.header.client_id != self._client_id:
                 return
 
-            call_future = None
-            try:
-                call_future = self._method_call_futures[
-                    someip_message.header.session_id
-                ]
-            except KeyError:
-                get_logger(_logger_name).error(
-                    f"Received response for unknown session ID {someip_message.header.session_id}"
-                )
-                return
+            call_future = self._method_call_futures[method_call_key]
 
             if call_future is not None:
                 result = MethodResult()
@@ -304,304 +268,44 @@ class ClientServiceInstance(ClientInstanceInterface):
                 result.payload = someip_message.payload
                 call_future.set_result(result)
 
-    def subscribe_eventgroup(self, eventgroup_id: int, ttl_subscription_seconds: int):
-        eventgroups = [x[0] for x in self._service.eventgroups]
-        if eventgroup_id not in eventgroups:
-            self._eventgroups_to_subscribe.add(
-                (eventgroup_id, ttl_subscription_seconds)
-            )
-
-        if self._daemon:
-            self._daemon._subscribe_to_eventgroup(
-                self._service.id,
-                self._instance_id,
-                self._service.major_version,
-                str(self._endpoint[0]),
-                self._endpoint[1],
-                self._protocol,
-                eventgroup_id,
-                ttl_subscription_seconds,
-            )
-
-    def unsubscribe_eventgroup(self, eventgroup_id: int):
-        if self._daemon:
-            sd_service = SdService(
-                service_id=self._service.id,
-                instance_id=self._instance_id,
-                major_version=self._service.major_version,
-                minor_version=self._service.minor_version,
-                ttl=self._ttl,
-                endpoint=self._endpoint,
-                protocol=self._protocol,
-            )
-
-            self._daemon._unsubscribe_from_eventgroup(sd_service, eventgroup_id)
-
-    def subscribe_ready_request(self, message: SubscribeEventgroupReadyRequest):
-        """
-        1. Check if service id, instance id, major version, protocol and eventgroup id match
-        2. If UDP is requested, then there is nothing to do -> send back a subscribe_ready response with success
-        3. If TCP is requuested, first check if the TCP connection is already established
-        4. If yes, send back a subscribe_ready response with success
-        5. If not, then open the TCP connection and send back a subscribe_ready response with success afterwards
-        6. If the TCP connection cannot be established, send back a subscribe_ready response with error
-        """
-        print(f"Received subscribe_ready request in client: {message}")
-        service_id = message["service_id"]
-        instance_id = message["instance_id"]
-        major_version = message["major_version"]
-        protocol = TransportLayerProtocol(message["protocol"])
-        eventgroup_id = message["eventgroup_id"]
-
-        eventgroup_ids_to_subscribe = [x[0] for x in self._eventgroups_to_subscribe]
-
-        if (
-            service_id != self._service.id
-            or instance_id != self._instance_id
-            or major_version != self._service.major_version
-            or protocol != self._protocol
-            or eventgroup_id not in eventgroup_ids_to_subscribe
-        ):
-            print("No match found")
-            return
-
-        if protocol == TransportLayerProtocol.UDP:
-            print("Send back response")
-
-            response: SubscribeEventgroupReadyResponse = create_uds_message(
-                SubscribeEventgroupReadyResponse,
-                success=True,
-                service_id=service_id,
-                instance_id=instance_id,
-                major_version=major_version,
-                client_endpoint_ip=str(self._endpoint[0]),
-                client_endpoint_port=self._endpoint[1],
-                eventgroup_id=eventgroup_id,
-                ttl_subscription=message["ttl_subscription"],
-                protocol=protocol.value,
-                service_endpoint_ip=message["service_endpoint_ip"],
-            )
-            self._daemon.transmit_message_to_daemon(response)
-
-        elif protocol == TransportLayerProtocol.TCP:
-            if (
-                self._tcp_connection is not None
-                and self._tcp_connection.is_open()
-                and self._tcp_connection.remote_ip == message["service_endpoint_ip"]
-                and self._tcp_connection.remote_port == message["service_endpoint_port"]
-            ):
-
-                print("TCP connection already established")
-                response: SubscribeEventgroupReadyResponse = create_uds_message(
-                    SubscribeEventgroupReadyResponse,
-                    success=True,
-                    service_id=service_id,
-                    instance_id=instance_id,
-                    major_version=major_version,
-                    client_endpoint_ip=str(self._endpoint[0]),
-                    client_endpoint_port=self._endpoint[1],
-                    eventgroup_id=eventgroup_id,
-                    ttl_subscription=message["ttl_subscription"],
-                    protocol=protocol.value,
-                    service_endpoint_ip=message["service_endpoint_ip"],
-                )
-                self._daemon.transmit_message_to_daemon(response)
-
-            else:
-                if self._tcp_connection is None or not self._tcp_connection.is_open():
-                    print("TCP connection not established yet")
-                    # Open the TCP connection
-                    asyncio.create_task(
-                        self.setup_tcp_connection_and_respond(
-                            str(self._endpoint[0]),
-                            self._endpoint[1],
-                            str(message["service_endpoint_ip"]),
-                            message["service_endpoint_port"],
-                            message,
-                        )
-                    )
-
-    async def setup_tcp_connection_and_respond(
-        self,
-        src_ip: str,
-        src_port: int,
-        dst_ip: str,
-        dst_port: int,
-        request: SubscribeEventgroupReadyRequest,
+    def subscribe_eventgroup(
+        self, eventgroup: EventGroup, ttl_subscription_seconds: int
     ):
-        """
-        Setup a TCP connection to the server and respond to the subscribe_ready request.
-        """
-
-        def send_response(success: bool):
-            response: SubscribeEventgroupReadyResponse = create_uds_message(
-                SubscribeEventgroupReadyResponse,
-                success=success,
-                service_id=self._service.id,
-                instance_id=self._instance_id,
-                major_version=self._service.major_version,
-                client_endpoint_ip=src_ip,
-                client_endpoint_port=src_port,
-                eventgroup_id=request["eventgroup_id"],
-                ttl_subscription=request["ttl_subscription"],
-                protocol=self._protocol.value,
-                service_endpoint_ip=dst_ip,
-            )
-            self._daemon.transmit_message_to_daemon(response)
-
-        if self._tcp_task is None:
-            get_logger(_logger_name).debug(
-                f"Create new TCP task for client of 0x{self._instance_id:04X}, 0x{self._service.id:04X}"
-            )
-            self._tcp_task = asyncio.create_task(
-                self.setup_tcp_connection(
-                    src_ip,
-                    src_port,
-                    dst_ip,
-                    dst_port,
-                )
-            )
-
-            try:
-                # Wait for two seconds until the connection is established, otherwise return an error
-                await asyncio.wait_for(self._tcp_connection_established_event.wait(), 2)
-            except asyncio.TimeoutError:
-                error_msg = f"Cannot establish TCP connection to {dst_ip}:{dst_port}."
-                get_logger(_logger_name).error(error_msg)
-                send_response(False)
-                return
-
-            if self._tcp_connection.is_open():
-                send_response(True)
-                return
-
-            else:
-                error_msg = f"TCP connection to {dst_ip}:{dst_port} is not opened."
-                get_logger(_logger_name).error(error_msg)
-                send_response(False)
-                return
-
-    async def setup_tcp_connection(
-        self, src_ip: str, src_port: int, dst_ip: str, dst_port: int
-    ):
-        try:
-            while True:
-
-                get_logger(_logger_name).debug(
-                    f"Trying to open TCP connection to ({dst_ip}, {dst_port})"
-                )
-                self._tcp_connection = TcpConnection(dst_ip, dst_port)
-
-                # Reset the event before the first await call
-                self._tcp_connection_established_event.clear()
-                try:
-                    await self._tcp_connection.connect(src_ip, src_port)
-                except OSError:
-                    get_logger(_logger_name).debug(
-                        f"Connection refused to ({dst_ip}, {dst_port}). Try to reconnect in 1 second"
-                    )
-                    # Wait a second before trying to connect again
-                    await asyncio.sleep(1.0)
-                    continue
-
-                # Notify other tasks waiting on the event, so the other task could send a method call
-                if self._tcp_connection.is_open():
-                    self._tcp_connection_established_event.set()
-
-                get_logger(_logger_name).debug(f"Start reading on port {src_port}")
-
-                someip_processor = SomeipDataProcessor()
-
-                while self._tcp_connection.is_open():
-                    try:
-                        new_data = await asyncio.wait_for(
-                            self._tcp_connection.reader.read(
-                                someip_processor.expected_bytes
-                            ),
-                            3.0,
-                        )
-
-                        if someip_processor.process_data(new_data):
-                            self.someip_message_received(
-                                someip_processor.someip_message, (dst_ip, dst_port)
-                            )
-
-                    except asyncio.TimeoutError:
-                        get_logger(_logger_name).debug(
-                            f"Timeout reading from TCP connection ({src_ip}, {src_port})"
-                        )
-
-                # Clear the event to avoid that a method call would be sent
-                self._tcp_connection_established_event.clear()
-                await self._tcp_connection.close()
-
-        except asyncio.CancelledError:
-            if self._tcp_connection.is_open():
-                await self._tcp_connection.close()
-            get_logger(_logger_name).debug("TCP task is cancelled. Raise again.")
-            raise
-
-    async def close(self):
-        self._shutdown_requested = True
-        if self._tcp_task is not None:
-            self._tcp_task.cancel()
-            try:
-                await self._tcp_task
-            except asyncio.CancelledError:
-                get_logger(_logger_name).debug("TCP task is cancelled.")
-
-        if id(self) in self._daemon._client_service_instances:
-            del self._daemon._client_service_instances[id(self)]
-
-
-async def construct_client_service_instance(
-    daemon: SomeIpDaemonClient,
-    service: Service,
-    instance_id: int,
-    endpoint: EndpointType,
-    protocol=TransportLayerProtocol.UDP,
-    client_id: int = 0,
-) -> ClientServiceInstance:
-    """
-    Asynchronously constructs a ClientServerInstance. Based on the given transport protocol, proper endpoints are setup before constructing the actual ServerServiceInstance.
-
-    Args:
-        service (Service): The service associated with the instance.
-        instance_id (int): The ID of the instance.
-        endpoint (EndpointType): The endpoint of the client instance containing IP address and port.
-        ttl (int, optional): The time-to-live for the instance used for service discovery subscribe entries. A value of 0 means that subscriptions are valid for infinite time.
-        protocol (TransportLayerProtocol, optional): The transport layer protocol for the instance. Defaults to TransportLayerProtocol.UDP.
-
-    Returns:
-        ClientServerInstance: The constructed ClientServerInstance.
-
-    Raises:
-        None
-    """
-
-    udp_endpoint = None
-
-    if protocol == TransportLayerProtocol.UDP:
-        loop = asyncio.get_running_loop()
-        rcv_socket = create_udp_socket(str(endpoint[0]), endpoint[1])
-
-        _, udp_endpoint = await loop.create_datagram_endpoint(
-            lambda: UDPSomeipEndpoint(), sock=rcv_socket
+        method_request = create_uds_message(
+            SubscribeEventGroupRequest,
+            service_id=self._service.id,
+            instance_id=self.instance_id,
+            major_version=self._service.major_version,
+            eventgroup=eventgroup.to_json(),
+            ttl_subscription=ttl_subscription_seconds,
+            client_endpoint_ip=self._endpoint_ip,
+            client_endpoint_port=self._endpoint_port,
+            udp=eventgroup.has_udp,
+            tcp=eventgroup.has_tcp,
         )
 
-    client_instance = ClientServiceInstance(
-        service,
-        instance_id,
-        endpoint,
-        protocol,
-        udp_endpoint,
-        client_id,
-        daemon,
-    )
+        self._daemon.transmit_message_to_daemon(method_request)
 
-    daemon._client_service_instances[id(client_instance)] = client_instance
+    def unsubscribe_eventgroup(self, eventgroup_id: int):
+        method_request = create_uds_message(
+            StopSubscribeEventGroupRequest,
+            service_id=self._service.id,
+            instance_id=self.instance_id,
+            major_version=self._service.major_version,
+            eventgroup_id=eventgroup_id,
+            client_endpoint_ip=self._endpoint_ip,
+            client_endpoint_port=self._endpoint_port,
+        )
 
-    if udp_endpoint:
-        udp_endpoint.set_someip_callback(client_instance.someip_message_received)
+        self._daemon.transmit_message_to_daemon(method_request)
 
-    return client_instance
+    async def is_available(self) -> bool:
+        service = await self._daemon._find_service(
+            self._service.id,
+            self._instance_id,
+            self._service.major_version,
+            self._service.minor_version,
+        )
+        if service is None:
+            return False
+        return True

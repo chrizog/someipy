@@ -14,9 +14,17 @@ class TestReceiveEventsTcp(TestBase):
         self.someipy_app = [
             "python3",
             f"{repository}/example_apps/receive_events_tcp.py",
-            f"--interface_ip {interface_ip}",
+            f"--interface_ip",
+            f"{interface_ip}",
         ]
         self.vsomeip_config = f"{repository}/integration_tests/install/receive_events_tcp/vsomeip-client.json"
+
+        self.someipydaemon_app = [
+            "python3",
+            f"{repository}/src/someipy/someipyd.py",
+            "--config",
+            f"{repository}/src/someipy/someipyd.json",
+        ]
 
     def evaluate(self) -> bool:
         sent_events = 0

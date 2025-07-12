@@ -13,8 +13,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from typing import List, Tuple, Iterable, Union
+from typing import List, Set, Tuple, Iterable, Union
+
+from someipy._internal.transport_layer_protocol import TransportLayerProtocol
 from .someip_sd_header import (
+    SdService2,
     SdSubscription,
     SomeIpSdHeader,
     SdService,
@@ -42,16 +45,17 @@ def option_runs(
         yield sd_message.options[start_index + i]
 
 
-def extract_offered_services(someip_sd_header: SomeIpSdHeader) -> List[SdService]:
-    result: List[SdService] = []
+def extract_offered_services(someip_sd_header: SomeIpSdHeader) -> List[SdService2]:
+    result: List[SdService2] = []
     service_offers = [
         o
         for o in someip_sd_header.service_entries
         if o.sd_entry.type == SdEntryType.OFFER_SERVICE and o.sd_entry.ttl != 0x00
     ]
     for e in service_offers:
-
         options = option_runs(e, someip_sd_header)
+        supported_protocols: Set[TransportLayerProtocol] = set()
+
         for option in options:
             if option.sd_option_common.type == SdOptionType.IPV4_ENDPOINT:
                 endpoint = (
@@ -59,16 +63,19 @@ def extract_offered_services(someip_sd_header: SomeIpSdHeader) -> List[SdService
                     option.port,
                 )
                 protocol = option.protocol
-                sd_offered_service = SdService(
-                    service_id=e.sd_entry.service_id,
-                    instance_id=e.sd_entry.instance_id,
-                    major_version=e.sd_entry.major_version,
-                    minor_version=e.minor_version,
-                    ttl=e.sd_entry.ttl,
-                    endpoint=endpoint,
-                    protocol=protocol,
-                )
-                result.append(sd_offered_service)
+                supported_protocols.add(protocol)
+
+        if len(supported_protocols) > 0:
+            sd_offered_service = SdService2(
+                service_id=e.sd_entry.service_id,
+                instance_id=e.sd_entry.instance_id,
+                major_version=e.sd_entry.major_version,
+                minor_version=e.minor_version,
+                ttl=e.sd_entry.ttl,
+                endpoint=endpoint,
+                protocols=supported_protocols,
+            )
+            result.append(sd_offered_service)
 
     return result
 

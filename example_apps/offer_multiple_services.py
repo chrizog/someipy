@@ -7,9 +7,10 @@ from someipy import (
     TransportLayerProtocol,
     ServiceBuilder,
     EventGroup,
-    construct_server_service_instance,
 )
-from someipy.service_discovery import construct_service_discovery
+from someipy._internal.someipy_daemon_client import connect_to_someipy_daemon
+from someipy.server_service_instance import ServerServiceInstance
+from someipy.service import Event
 from someipy.someipy_logging import set_someipy_log_level
 from someipy.serialization import Uint8, Uint64, Float32
 from temperature_msg import TemparatureMsg
@@ -43,19 +44,14 @@ async def main():
                 interface_ip = sys.argv[i + 1]
                 break
 
-    # Since the construction of the class ServiceDiscoveryProtocol is not trivial and would require an async __init__ function
-    # use the construct_service_discovery function
-    # The local interface IP address needs to be passed so that the src-address of all SD UDP packets is correctly set
-    service_discovery = await construct_service_discovery(
-        SD_MULTICAST_GROUP, SD_PORT, interface_ip
-    )
+    someipy_daemon = await connect_to_someipy_daemon()
+
+    temperature_event = Event(id=SAMPLE_EVENT_ID, protocol=TransportLayerProtocol.UDP)
 
     temperature_eventgroup = EventGroup(
-        id=SAMPLE_EVENTGROUP_ID, event_ids=[SAMPLE_EVENT_ID]
+        id=SAMPLE_EVENTGROUP_ID, events=[temperature_event]
     )
 
-    # In this example the same service is offered in two different service instances. Of course
-    # a second different service can be defined and passed to the second server service instance.
     temperature_service = (
         ServiceBuilder()
         .with_service_id(SAMPLE_SERVICE_ID)
@@ -65,45 +61,29 @@ async def main():
     )
 
     # For sending events use a ServerServiceInstance
-    # We will construct two instances that provide the same service, but have different instance
-    # IDs and run on different endpoints (ports 3000 and 3001)
-    service_instance_temperature_1 = await construct_server_service_instance(
-        temperature_service,
+    service_instance_temperature_1 = ServerServiceInstance(
+        daemon=someipy_daemon,
+        service=temperature_service,
         instance_id=SAMPLE_INSTANCE_ID_1,
-        endpoint=(
-            ipaddress.IPv4Address(interface_ip),
-            3000,
-        ),  # src IP and port of the service
+        endpoint_ip=interface_ip,
+        endpoint_port=3000,
         ttl=5,
-        sd_sender=service_discovery,
         cyclic_offer_delay_ms=2000,
-        protocol=TransportLayerProtocol.UDP,
     )
 
-    service_instance_temperature_2 = await construct_server_service_instance(
-        temperature_service,
+    service_instance_temperature_2 = ServerServiceInstance(
+        daemon=someipy_daemon,
+        service=temperature_service,
         instance_id=SAMPLE_INSTANCE_ID_2,
-        endpoint=(
-            ipaddress.IPv4Address(interface_ip),
-            3001,
-        ),  # src IP and port of the service
+        endpoint_ip=interface_ip,
+        endpoint_port=3001,
         ttl=5,
-        sd_sender=service_discovery,
         cyclic_offer_delay_ms=2000,
-        protocol=TransportLayerProtocol.UDP,
     )
 
-    # The service instances have to be attached always to the ServiceDiscoveryProtocol object, so that the service instances
-    # are notified by the ServiceDiscoveryProtocol about e.g. subscriptions from other ECUs
-    service_discovery.attach(service_instance_temperature_1)
-    service_discovery.attach(service_instance_temperature_2)
-
-    # After constructing and attaching ServerServiceInstances to the ServiceDiscoveryProtocol object the
-    # start_offer method has to be called. This will start an internal timer, which will periodically send
-    # Offer service entries with a period of "cyclic_offer_delay_ms" which has been passed above
     print("Start offering services..")
-    service_instance_temperature_1.start_offer()
-    service_instance_temperature_2.start_offer()
+    await service_instance_temperature_1.start_offer()
+    await service_instance_temperature_2.start_offer()
 
     tmp_msg = TemparatureMsg()
 
@@ -139,12 +119,12 @@ async def main():
         # use await asyncio.Future() to keep the task alive
         # await asyncio.Future()
     except asyncio.CancelledError:
-        print("Stop offering service.s.")
+        print("Stop offering services..")
         await service_instance_temperature_1.stop_offer()
         await service_instance_temperature_2.stop_offer()
     finally:
-        print("Service Discovery close..")
-        service_discovery.close()
+        print("Disconnect from daemon..")
+        await someipy_daemon.disconnect_from_daemon()
 
     print("End main task..")
 

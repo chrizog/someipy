@@ -3,7 +3,6 @@ from .service import Service, ServiceBuilder, EventGroup  # noqa: F401
 from .server_service_instance import ServerServiceInstance  # noqa: F401
 from .client_service_instance import (
     ClientServiceInstance,
-    construct_client_service_instance,
     MethodResult,
 )  # noqa: F401
 

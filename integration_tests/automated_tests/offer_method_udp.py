@@ -13,9 +13,17 @@ class TestOfferMethodUdp(TestBase):
         self.someipy_app = [
             "python3",
             f"{repository}/example_apps/offer_method_udp.py",
-            f"--interface_ip {interface_ip}",
+            f"--interface_ip",
+            f"{interface_ip}",
         ]
         self.vsomeip_config = f"{repository}/integration_tests/install/offer_method_udp/vsomeip-client.json"
+
+        self.someipydaemon_app = [
+            "python3",
+            f"{repository}/src/someipy/someipyd.py",
+            "--config",
+            f"{repository}/src/someipy/someipyd.json",
+        ]
 
     def evaluate(self) -> bool:
         method_calls = 0

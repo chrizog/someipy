@@ -59,6 +59,47 @@ class SomeipEndpointStorage:
         else:
             return None
 
+    def get_endpoint_by_ip_port(
+        self, src_ip: str, src_port: int, protocol: TransportLayerProtocol
+    ) -> Optional[SomeipEndpoint]:
+        """
+        Get an endpoint by source IP, source port, and protocol.
+        Returns the first matching endpoint or None if not found.
+        """
+        for endpoints in self._storage.values():
+            for endpoint in endpoints:
+                if (
+                    endpoint.src_ip() == src_ip
+                    and endpoint.src_port() == src_port
+                    and endpoint.protocol() == protocol
+                ):
+                    return endpoint
+        return None
+
+    def get_end_point_by_src_and_dst_ip_port(
+        self,
+        src_ip: str,
+        src_port: int,
+        dst_ip: str,
+        dst_port: int,
+        protocol: TransportLayerProtocol,
+    ) -> Optional[SomeipEndpoint]:
+        """
+        Get an endpoint by source IP, source port, destination IP, and destination port.
+        Returns the first matching endpoint or None if not found.
+        """
+        for endpoints in self._storage.values():
+            for endpoint in endpoints:
+                if (
+                    endpoint.src_ip() == src_ip
+                    and endpoint.src_port() == src_port
+                    and endpoint.dst_ip() == dst_ip
+                    and endpoint.dst_port() == dst_port
+                    and endpoint.protocol() == protocol
+                ):
+                    return endpoint
+        return None
+
     def get_all_endpoints(self) -> List[SomeipEndpoint]:
         """Get all endpoints in the storage"""
         return [
@@ -66,7 +107,7 @@ class SomeipEndpointStorage:
         ]
 
     def has_endpoint(
-        self, ip: str, port: int, protocol: TransportLayerProtocol
+        self, src_ip: str, src_port: int, protocol: TransportLayerProtocol
     ) -> bool:
         """
         Check if an endpoint with the given IP, port, and protocol exists in the storage.
@@ -74,9 +115,27 @@ class SomeipEndpointStorage:
         for endpoints in self._storage.values():
             for endpoint in endpoints:
                 if (
-                    endpoint.ip == ip
-                    and endpoint.port == port
+                    endpoint.src_ip() == src_ip
+                    and endpoint.src_port() == src_port
                     and endpoint.protocol() == protocol
+                ):
+                    return True
+        return False
+
+    def has_tcp_endpoint(
+        self, src_ip: str, src_port: int, dst_ip: str, dst_port: int
+    ) -> bool:
+        """
+        Check if a TCP endpoint with the given source IP, source port, destination IP, and destination port exists in the storage.
+        """
+        for endpoints in self._storage.values():
+            for endpoint in endpoints:
+                if (
+                    endpoint.protocol() == TransportLayerProtocol.TCP
+                    and endpoint.src_ip() == src_ip
+                    and endpoint.src_port() == src_port
+                    and endpoint.dst_ip() == dst_ip
+                    and endpoint.dst_port() == dst_port
                 ):
                     return True
         return False

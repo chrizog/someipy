@@ -5,32 +5,6 @@ class BaseMessage(TypedDict):
     type: str
 
 
-class SubscribeEventgroupReadyRequest(BaseMessage):
-    service_id: int
-    instance_id: int
-    major_version: int
-    client_endpoint_ip: str
-    client_endpoint_port: int
-    eventgroup_id: int
-    ttl_subscription: int
-    protocol: int
-    service_endpoint_ip: str
-    service_endpoint_port: int
-
-
-class SubscribeEventgroupReadyResponse(BaseMessage):
-    success: bool
-    service_id: int
-    instance_id: int
-    major_version: int
-    client_endpoint_ip: str
-    client_endpoint_port: int
-    eventgroup_id: int
-    ttl_subscription: int
-    protocol: int
-    service_endpoint_ip: str
-
-
 class OfferServiceRequest(BaseMessage):
     service_id: int
     instance_id: int
@@ -61,9 +35,48 @@ class FindServiceRequest(BaseMessage):
     service_id: int
     instance_id: int
     major_version: int
+    minor_version: int
 
 
-class CallMethodRequest(BaseMessage):
+class FindServiceResponse(BaseMessage):
+    success: bool
+    service_id: int
+    instance_id: int
+    major_version: int
+    minor_version: int
+    endpoint_ip: str
+    endpoint_port: int
+
+
+class OutboundCallMethodRequest(BaseMessage):
+    service_id: int
+    instance_id: int
+    method_id: int
+    client_id: int
+    session_id: int
+    protocol_version: int
+    major_version: int
+    minor_version: int
+    dst_endpoint_ip: str
+    dst_endpoint_port: int
+    src_endpoint_ip: str
+    src_endpoint_port: int
+    protocol: int
+    payload: str
+
+
+class OutboundCallMethodResponse(BaseMessage):
+    service_id: int
+    method_id: int
+    client_id: int
+    session_id: int
+    return_code: int
+    dst_endpoint_ip: str
+    dst_endpoint_port: int
+    payload: str
+
+
+class InboundCallMethodRequest(BaseMessage):
     service_id: int
     instance_id: int
     method_id: int
@@ -80,7 +93,7 @@ class CallMethodRequest(BaseMessage):
     payload: str
 
 
-class CallMethodResponse(BaseMessage):
+class InboundCallMethodResponse(BaseMessage):
     service_id: int
     instance_id: int
     method_id: int
@@ -98,6 +111,48 @@ class CallMethodResponse(BaseMessage):
     return_code: int
 
 
+class SendEventRequest(BaseMessage):
+    service_id: int
+    instance_id: int
+    major_version: int
+    client_id: int
+    session_id: int
+    eventgroup_id: int
+    event: str  # Serialized event object
+    src_endpoint_ip: str
+    src_endpoint_port: int
+    payload: str
+
+
+class SubscribeEventGroupRequest(BaseMessage):
+    service_id: int
+    instance_id: int
+    major_version: int
+    ttl_subscription: int
+    eventgroup: str
+    client_endpoint_ip: str
+    client_endpoint_port: int
+    udp: bool
+    tcp: bool
+
+
+class StopSubscribeEventGroupRequest(BaseMessage):
+    service_id: int
+    instance_id: int
+    major_version: int
+    eventgroup_id: int
+    client_endpoint_ip: str
+    client_endpoint_port: int
+
+
+class ReceivedEvent(BaseMessage):
+    service_id: int
+    event_id: int
+    src_endpoint_ip: str
+    src_endpoint_port: str
+    payload: str
+
+
 T = TypeVar("T", bound=BaseMessage)
 
 
@@ -112,22 +167,3 @@ def create_uds_message(message_python_type: type[T], **kwargs: Any) -> T:
         )
 
     return message
-
-
-if __name__ == "__main__":
-
-    x = create_uds_message(
-        SubscribeEventgroupReadyRequest,
-        service_id=1,
-        instance_id=2,
-        major_version=3,
-        client_endpoint_ip="1",
-        client_endpoint_port=4,
-        eventgroup_id=5,
-        ttl_subscription=6,
-        protocol=7,
-        service_endpoint_ip="1",
-        service_endpoint_port=2,
-    )
-
-    print(x)

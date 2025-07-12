@@ -247,6 +247,73 @@ class SdService:
 
 
 @dataclass
+class SdService2:
+    """This class aggregates data from entries and options and provides a compact interface instead of loose SD entries and options"""
+
+    service_id: int
+    instance_id: int
+    major_version: int
+    minor_version: int
+    ttl: int
+    endpoint: Tuple[ipaddress.IPv4Address, int]
+    protocols: frozenset[TransportLayerProtocol]
+
+    def to_json(self):
+        output_dict = {
+            "service_id": self.service_id,
+            "instance_id": self.instance_id,
+            "major_version": self.major_version,
+            "minor_version": self.minor_version,
+            "ttl": self.ttl,
+            "endpoint_ip": str(self.endpoint[0]),
+            "endpoint_port": self.endpoint[1],
+            "protocols": list(self.protocols),
+        }
+        return json.dumps(output_dict)
+
+    @classmethod
+    def from_json(cls: _T, json_str: str) -> _T:
+        json_dict = json.loads(json_str)
+        o = cls(
+            int(json_dict["service_id"]),
+            int(json_dict["instance_id"]),
+            int(json_dict["major_version"]),
+            int(json_dict["minor_version"]),
+            int(json_dict["ttl"]),
+            (
+                ipaddress.IPv4Address(json_dict["endpoint_ip"]),
+                json_dict["endpoint_port"],
+            ),
+            frozenset(TransportLayerProtocol(p) for p in json_dict["protocols"]),
+        )
+        return o
+
+
+@dataclass
+class SdServiceWithTimestamp:
+    service: SdService2
+    timestamp: float
+
+    def __eq__(self, value):
+        if isinstance(value, SdServiceWithTimestamp):
+            return self.service == value.service
+        return False
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.service.service_id,
+                self.service.instance_id,
+                self.service.major_version,
+                self.service.minor_version,
+                self.service.ttl,
+                self.service.endpoint,
+                self.service.protocols,
+            )
+        )
+
+
+@dataclass
 class SomeIpSdHeader:
     someip_header: SomeIpHeader
     reboot_flag: bool

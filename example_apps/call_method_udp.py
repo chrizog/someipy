@@ -1,5 +1,4 @@
 import asyncio
-import ipaddress
 import logging
 import sys
 
@@ -10,9 +9,9 @@ from someipy import (
     connect_to_someipy_daemon,
 )
 from someipy.client_service_instance import (
-    construct_client_service_instance,
+    ClientServiceInstance,
 )
-from someipy.service import ServiceBuilder
+from someipy.service import Method, ServiceBuilder
 from someipy.someipy_logging import set_someipy_log_level
 from addition_method_parameters import Addends, Sum
 
@@ -40,41 +39,43 @@ async def main():
 
     someipy_daemon = await connect_to_someipy_daemon()
 
+    addition_method = Method(
+        id=SAMPLE_METHOD_ID,
+        protocol=TransportLayerProtocol.UDP,
+    )
+
     addition_service = (
         ServiceBuilder()
         .with_service_id(SAMPLE_SERVICE_ID)
         .with_major_version(1)
+        .with_method(addition_method)
         .build()
     )
 
     # For calling methods construct a ClientServiceInstance
-    client_instance_addition = await construct_client_service_instance(
+    client_instance_addition = ClientServiceInstance(
         daemon=someipy_daemon,
         service=addition_service,
         instance_id=SAMPLE_INSTANCE_ID,
-        endpoint=(ipaddress.IPv4Address(interface_ip), 3002),
-        ttl=5,
-        protocol=TransportLayerProtocol.UDP,
+        endpoint_ip=interface_ip,
+        endpoint_port=3002,
     )
-
-    # await service_instance.find_service(timeout=10)
-    # Static config mit daemon=None
-    # 5. instance.set_static_destination_configuration((ip, port))
-
-    method_parameter = Addends(addend1=1, addend2=2)
 
     try:
 
-        while not await client_instance_addition.service_found():
-            print("Waiting for service..")
+        while not await client_instance_addition.is_available():
             await asyncio.sleep(0.5)
 
-        while True:
+        method_parameter = Addends(addend1=1, addend2=2)
 
+        while True:
             try:
                 # The call_method function can raise an error, e.g. if no TCP connection to the server can be established
                 # In case there is an application specific error in the server, the server still returns a response and the
                 # message_type and return_code are evaluated.
+                print(
+                    f"Try to call method: {SAMPLE_METHOD_ID} with parameter: {method_parameter.serialize()}"
+                )
                 method_result = await client_instance_addition.call_method(
                     SAMPLE_METHOD_ID, method_parameter.serialize()
                 )
@@ -102,9 +103,7 @@ async def main():
     except asyncio.CancelledError:
         print("Shutdown..")
     finally:
-        print("Shutdown service instance..")
-        await client_instance_addition.close()
-
+        print("Disconnect from daemon..")
         await someipy_daemon.disconnect_from_daemon()
 
     print("End main task..")
