@@ -4,7 +4,7 @@ Calling SOME/IP Methods
 SOME/IP Methods
 ---------------
 
-Methods implement a request-response communication in the SOME/IP protocol. A server offers a method. A client calls the method by sending a request message to the server. The server answers the request message with a response message. In contrast to SOME/IP events, no subscription of the offered service has to be setup in order to make method request call. 
+Methods implement a request-response communication in the SOME/IP protocol. A server offers a method. A client calls the method by sending a request message to the server. The server answers the request message with a response message. In contrast to SOME/IP events, no subscription of the offered service has to be set up in order to make a method request call.
 
 Request and response messages can carry a serialized payload. Typically, the payload is either the argument to the method or the return value of the method. For defining the service interface data types which can be used in methods and serializing structured data into ``bytes`` follow the article :doc:`service_interface`.
 
@@ -45,11 +45,11 @@ A SOME/IP method is part of a service and so we will define a ``Service`` as the
    SAMPLE_SERVICE_ID = 0x1234
 
    addition_service = (
-           ServiceBuilder()
-           .with_service_id(SAMPLE_SERVICE_ID)
-           .with_major_version(1)
-           .build()
-       )
+       ServiceBuilder()
+       .with_service_id(SAMPLE_SERVICE_ID)
+       .with_major_version(1)
+       .build()
+   )
 
 Step 3: Instantiate the Service
 -------------------------------
@@ -58,10 +58,10 @@ The previously defined ``Service`` can be instantiated into one or multiple serv
 The ``construct_client_service_instance`` is a coroutine since it uses ``asyncio`` internally and therefore has to be ``await``ed.
 
 - You need to pass the instance ID (``SAMPLE_INSTANCE_ID``) of the server service instance that offers the method.
-- The endpoint that is passed is the endpoint (ip address and port) of the client and not of the server.
+- The endpoint that is passed is the endpoint (IP address and port) of the client and not of the server.
 - The ``ttl`` parameter is the lifetime of a potential subscription in seconds. This is only relevant if you want to :doc:`subscribe to an event <subscribing_events>`.
 - It is assumed that the ``service_discovery`` object was instantiated beforehand. For more information on that topic, read :doc:`service_discovery`.
-- You can choose either UDP or TCP as the transport protocol. Make sure, that it matches to the service offered by the server.
+- You can choose either UDP or TCP as the transport protocol. Make sure that it matches the service offered by the server.
 
 We will also attach the ``ClientServiceInstance`` to the ``ServiceDiscovery`` object. This allows the ``ClientServiceInstance`` to be notified about service discovery messages.
 
@@ -85,7 +85,7 @@ Step 4: Calling the Method
 
 Finally, we need to setup the method parameters for the request and call the SOME/IP method offered by the server. In this case, the parameter to the method is an ``Addends`` object. After creating the ``Addends`` object, we will call the method on the ``ClientServiceInstance`` using the ``call_method`` function. ``call_method`` is a coroutine which has to be awaited and will not block until the response from the server is received. This allows other tasks to be scheduled while waiting for a response. The ``call_method`` function expects a method ID identifying the method on the server to be called. A server could offer multiple methods inside the same service. The second parameter is the payload to be sent with the request: The ``Addends`` object is serialized into a ``bytes`` object and passed to the call.
 
-The ``call_method`` function returns a ``MethodResult`` object with following members:
+The ``call_method`` function returns a ``MethodResult`` object with the following members:
 
 - message_type (``MessageType``): The MessageType is an enum and can be either ``MessageType.RESPONSE`` or ``MessageType.ERROR``.
 - return_code (``ReturnCode``): The ``ReturnCode`` enum reflects the return codes defined in the `SOME/IP protocol specification <https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPProtocol.pdf>`_. For indicating a successful method call to the client, ``E_OK`` is returned by the server.
@@ -102,7 +102,7 @@ To avoid the ``RuntimeError`` it is possible to test whether the service was alr
        # You can query if the service offering the method was already found via SOME/IP service discovery
        print(f"Service found: {client_instance_addition.service_found()}")
        while not client_instance_addition.service_found():
-           print("Waiting for service..")
+           print("Waiting for service...")
            await asyncio.sleep(0.5)
        # The call_method function can raise an error, e.g. if no TCP connection to the server can be established
        # In case there is an application specific error in the server, the server still returns a response and the
@@ -122,7 +122,7 @@ To avoid the ``RuntimeError`` it is possible to test whether the service was alr
                    f"Method call returned an error: {method_result.return_code}"
                )
        elif method_result.message_type == MessageType.ERROR:
-           print("Server returned an error..")
+           print("Server returned an error...")
            # In case the server includes an error message in the payload, it can be deserialized and printed
    except Exception as e:
        print(f"Error during method call: {e}")
