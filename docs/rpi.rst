@@ -8,11 +8,12 @@ The setup used in this tutorial is as follows. The Raspberry Pi (rpi) and the PC
 .. image:: images/rpi_pc.svg
    :align: center
 
+
 Configuration of Host PC
 ------------------------
 
-First the proper network settings have to be configured on the host PC. On Ubuntu it can configured via Settings > Network > Wired.
-In order to communicate with the rpi you need to configure an IPv4 address in the same subnet as the rpi. In this setup the rpi has the address 169.254.54.11. The host PC's IP address is chosen as 169.254.54.10.
+First, the proper network settings have to be configured on the host PC. On Ubuntu it can be configured via Settings > Network > Wired.
+In order to communicate with the rpi you need to configure an IPv4 address in the same subnet as the rpi. In this setup, the rpi has the address 169.254.54.11. The host PC's IP address is chosen as 169.254.54.10.
 
 .. image:: images/pc_ip4_settings.png
    :align: center
@@ -22,7 +23,7 @@ Installing someipy on Raspberry Pi
 
 **Option 1**
 
-If your Raspberry Pi is connected to the internet, you can use **pip3 install** for installing someipy. Login to your rpi using SSH:
+If your Raspberry Pi is connected to the internet, you can use **pip3 install** for installing someipy. Log in to your rpi using SSH:
 
 .. code-block:: bash
 
@@ -30,7 +31,7 @@ If your Raspberry Pi is connected to the internet, you can use **pip3 install** 
 
 **Option 2**
 
-In case your rpi is not connected to the internet, you can download the wheel file on your host PC and copy it afterwards to the rpi. On the rpi you can install the pip package locally from the wheel file:
+In case your rpi is not connected to the internet, you can download the wheel file on your host PC and copy it afterward to the rpi. On the rpi you can install the pip package locally from the wheel file:
 
 .. code-block:: bash
 
@@ -38,7 +39,7 @@ In case your rpi is not connected to the internet, you can download the wheel fi
    # Transfer to rpi home directory
    scp someipy-0.0.2-py3-none-any.whl pi@169.254.54.11:/home/pi
 
-Login to your rpi and install someipy from the transferred wheel file:
+Log in to your rpi and install someipy from the transferred wheel file:
 
 .. code-block:: bash
 
@@ -48,13 +49,13 @@ Login to your rpi and install someipy from the transferred wheel file:
 someipy Application on Raspberry Pi
 -----------------------------------
 
-The application on the rpi shall send out SOME/IP events. For that purpose we will clone the `example application <https://github.com/chrizog/someipy/blob/master/example_apps/send_events_udp.py>`_ from GitHub and the corresponding *temperature message*, adapt the application and copy it to the rpi.
+The application on the rpi shall send out SOME/IP events. For that purpose, we will clone the `example application <https://github.com/chrizog/someipy/blob/v1.0.0/example_apps/send_events_udp.py>`_ from GitHub and the corresponding *temperature message*, adapt the application and copy it to the rpi.
 
 .. code-block:: bash
 
    git clone git@github.com:chrizog/someipy.git
 
-Now edit the file *send_events_udp.py* and adapt the *INTERFACE_IP* variable at the top of script. The IP address has to be set to the Raspberry Pi's IPv4 address (169.254.54.11 in this example).
+Now edit the file *send_events_udp.py* and adapt the *INTERFACE_IP* variable at the top of the script. The IP address has to be set to the Raspberry Pi's IPv4 address (169.254.54.11 in this example).
 
 .. code-block:: python
 
@@ -77,7 +78,7 @@ Start the application on the Raspberry Pi:
 someipy Application on Host
 ---------------------------
 
-On the host PC the counterpart of the application *send_events_udp.py* has to be used which is the application *receive_events_udp.py*.
+On the host PC, the counterpart of the application *send_events_udp.py* has to be used which is the application *receive_events_udp.py*.
 
 Again, edit the app *receive_events_udp.py* and adjust the *INTERFACE_IP* variable now to the host PC's IP address (169.254.54.10 in this example).
 
@@ -85,13 +86,13 @@ Again, edit the app *receive_events_udp.py* and adjust the *INTERFACE_IP* variab
 
    INTERFACE_IP = "169.254.54.10"
 
-Before starting the application, make sure that your host PC joins the multicast group which is used for SOME/IP service discovery. In this example the service discovery IP address is 224.224.224.245. The network interface is *enp3s0* in this example. Use *ifconfig* to figure out the name of your ethernet network interface adapter.
+Before starting the application, make sure that your host PC joins the multicast group which is used for SOME/IP service discovery. In this example, the service discovery IP address is 224.224.224.245. The network interface is *enp3s0* in this example. Use *ifconfig* to figure out the name of your ethernet network interface adapter.
 
 .. code-block:: bash
 
    sudo ip addr add 224.224.224.245 dev enp3s0 autojoin
 
-Afterwards start the application:
+Afterward, start the application:
 
 .. code-block:: bash
 
@@ -100,11 +101,11 @@ Afterwards start the application:
 Troubleshooting
 ---------------
 
-In case the receiving application on the host PC is not receiving any data (not showing any logs), make sure that your network interface settings are correctly set as descibed above.
+In case the receiving application on the host PC is not receiving any data (not showing any logs), make sure that your network interface settings are correctly set as described above.
 
 It is recommended to use `Wireshark <https://www.wireshark.org/download.html>`_ to check whether the service discovery offer entries are received on the host PC. Since version 3.2.0 Wireshark supports a SOME/IP dissector.
 
-Start to capture packets in Wireshark and look for a packet with the destination address *224.224.224.245*, i.e. the service discovery address you configured in your application. Right-click on that packet and choose "Decode as.." and select SOME/IP as the protocol.
+Start to capture packets in Wireshark and look for a packet with the destination address *224.224.224.245*, i.e., the service discovery address you configured in your application. Right-click on that packet and choose "Decode as..." and select SOME/IP as the protocol.
 
 Now the packet shall have the info in Wireshark "SOME/IP Service Discovery Protocol [Offer]".
 

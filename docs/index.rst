@@ -1,7 +1,7 @@
 someipy - An Open-Source Python library for SOME/IP
 ====================================
 
-This is the documentation for someipy, an open-source Python library implementing the SOME/IP protocol, including SOME/IP Service Discovery. It is designed for fast prototyping of applications making SOME/IP more accessable to developers.
+This is the documentation for someipy, an open-source Python library implementing the SOME/IP protocol, including SOME/IP Service Discovery. It is designed for fast prototyping of applications making SOME/IP more accessible to developers.
 
 Relevant resources:
 

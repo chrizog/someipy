@@ -19,9 +19,9 @@ Release v1.0.0
 Release v0.0.10
 ---------------
 
-- Fix Python3.8 issue from version 0.0.9 (Set of asyncio.Task typing)
+- Fix Python 3.8 issue from version 0.0.9 (Set of asyncio.Task typing)
 - Properly handle major version (interface version) of services
-- Handle session ids and client ids
+- Handle session IDs and client IDs
 - Allow multiple asynchronous method calls from a client and handle out of order method responses
 
 Release v0.0.9
@@ -44,8 +44,8 @@ Release v0.0.7
 Release v0.0.6
 --------------
 
-- Pack together service offers in a single Service Discovery message (this requires the offers to be sent in between max. 20ms)
-- Send SD stop offer entries when a service instance is shutdown
+- Pack together service offers in a single Service Discovery message (this requires the offers to be sent within max. 20ms)
+- Send SD stop offer entries when a service instance is shut down
 
 Release v0.0.5
 --------------
@@ -71,5 +71,5 @@ Release v0.0.2
 
 - Support TCP as a transport layer
 - Support offering and calling methods
-- Add an example how to replay ROS1 bagfiles into SOME/IP events
+- Add an example of how to replay ROS1 bagfiles into SOME/IP events
 - Add docstrings for all public classes and functions
