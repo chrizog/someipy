@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import TypeVar
@@ -36,9 +36,14 @@ class SdOptionType(Enum):
     IPV4_SD_ENDPOINT = 0x24  # TODO: not implemented
     IPV6_SD_ENDPOINT = 0x26  # TODO: not implemented
 
+class SdOptionInterface(ABC):
+    
+    @abstractmethod
+    def get_sd_option_type(self):
+        pass
 
 @dataclass
-class SdOptionCommon:
+class SdOptionCommon(SdOptionInterface):
     """This class represents the common part of all SD options
     including the length of the option in bytes, the type of the option (uint8)
     and a discardable flag (bool)"""
@@ -60,9 +65,11 @@ class SdOptionCommon:
         discardable_flag_value = set_bit_at_position(0, 7, self.discardable_flag)
         return struct.pack(">HBB", self.length, self.type.value, discardable_flag_value)
 
+    def get_sd_option_type(self) -> SdOptionType:
+        return self.type
 
 @dataclass
-class SdIPV4EndpointOption:
+class SdIPV4EndpointOption(SdOptionInterface):
     sd_option_common: SdOptionCommon
     ipv4_address: ipaddress.IPv4Address
     protocol: TransportLayerProtocol
@@ -86,3 +93,6 @@ class SdIPV4EndpointOption:
         return self.sd_option_common.to_buffer() + struct.pack(
             ">IBBH", int(self.ipv4_address), 0, self.protocol.value, self.port
         )
+    
+    def get_sd_option_type(self) -> SdOptionType:
+        return self.sd_option_common.type
