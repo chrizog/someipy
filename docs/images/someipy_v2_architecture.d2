@@ -1,0 +1,51 @@
+classes: {
+  daemon: {
+    style: {
+      fill: "#44C7B1"
+    }
+  }
+  app: {
+    style: {
+      fill: "#F2A900"
+    }
+  }
+}
+
+grid-rows: 1
+
+ECU A: {
+  Daemon_A: someipy Daemon
+  App_A_A: someipy App A
+  App_A_B: someipy App B
+
+  Daemon_A.class: daemon
+  App_A_A.class: app
+  App_A_B.class: app
+
+  App_A_A <-> Daemon_A: Unix Domain Socket
+  App_A_B <-> Daemon_A: Unix Domain Socket
+}
+
+ECU B: {
+  Daemon_B: someipy Daemon
+  App_B_C: someipy App C
+  App_B_D: someipy App D
+  App_B_E: someipy App E
+
+  Daemon_B.class: daemon
+  App_B_C.class: app
+  App_B_D.class: app
+  App_B_E.class: app
+
+  App_B_C <-> Daemon_B: Unix Domain Socket
+  App_B_D <-> Daemon_B: Unix Domain Socket
+  App_B_E <-> Daemon_B: Unix Domain Socket
+}
+
+ECU A.Daemon_A <-> ECU B.Daemon_B: SOME/IP (SD) {
+  style: {
+    stroke: "#FF5733"
+    stroke-width: 3
+    bold: true
+  }
+}

@@ -32,6 +32,7 @@ Table of Contents
 .. toctree::
     :maxdepth: 1
 
+    whatsnew
     getting_started
     calling_methods
     offering_events
