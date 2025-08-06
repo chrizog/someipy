@@ -34,6 +34,7 @@ Table of Contents
 
     whatsnew
     getting_started
+    someipy_daemon
     calling_methods
     offering_events
     offering_methods
