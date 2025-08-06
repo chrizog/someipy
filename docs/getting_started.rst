@@ -1,7 +1,7 @@
 Getting Started
 ===============
 
-This guide demonstrates how to create a SOME/IP service using someipy that broadcasts temperature measurements every second. The complete example is available in the `example applications <https://github.com/chrizog/someipy/blob/v1.0.0/example_apps/send_events_udp.py>`_.
+This guide demonstrates how to create a SOME/IP service using someipy that broadcasts temperature measurements every second. The complete example is available in the `example applications on GitHub <https://github.com/chrizog/someipy/blob/v2.0.0/example_apps/send_events_udp.py>`_.
 
 Prerequisites
 ------------
@@ -60,7 +60,7 @@ Create **temperature_msg.py**:
 Asyncio App Implementation
 --------------------------
 
-someipy is an `asyncio <https://docs.python.org/3/library/asyncio.html>`_ based Python library, since multiple concurrent tasks are running in the SOME/IP implementation for service discovery, waiting for new clients or waiting for new data.
+someipy is an `asyncio <https://docs.python.org/3/library/asyncio.html>`_ based Python library, since multiple concurrent tasks are running in the SOME/IP implementation, e.g. for communicating with the someipy daemon.
 
 First we will set up our application's structure. Typically in an asyncio application, a main coroutine-function is added which is executed using `asyncio.run <https://docs.python.org/3/library/asyncio-runner.html#id1>`_. Our application's logic will be added inside the main coroutine-function *async def main*.
 
@@ -101,39 +101,23 @@ At the beginning of the application the someipy logging level is configured. Log
        # .. our application will go here
        set_someipy_log_level(logging.DEBUG)
 
-Starting Service Discovery
---------------------------
 
-Before defining and instantiating our SOME/IP service, a *ServiceDiscoveryProtocol* class has to be instantiated and started. The *ServiceDiscoveryProtocol* object will take care of receiving and sending all service discovery messages on the service discovery multicast group which is typically *224.224.224.245* and on port 30490. Also the IP address of the network interface used has to be provided. In this example localhost is used and *127.0.0.1* is passed. The construction can be done using the factory function *construct_service_discovery* from the module *someipy.service_discovery*.
+Connect to the someipy Daemon
+-----------------------------
 
-Make sure to close the service discovery at the end of your application to ensure ports are freed correctly using the *close()* method.
+The next step is to connect to the someipy daemon. The daemon is a separate process communicating with the application using someipy via a Unix Domain Socket (UDS). The daemon is responsible for handling all communication with the SOME/IP network, including service discovery and message sending/receiving.
 
 .. code-block:: python
 
-   from someipy.service_discovery import construct_service_discovery
-   from temperature_msg import TemperatureMsg
+    someipy_daemon = await connect_to_someipy_daemon()
 
-   async def main():
-       # Configure logging
-       set_someipy_log_level(logging.INFO)
+In case, a non-default Unix Domain Socket path is used, a config dictionary can be passed to the *connect_to_someipy_daemon* function.
 
-       # Service discovery configuration
-       SD_MULTICAST_GROUP = "224.224.224.245"
-       SD_PORT = 30490
-       INTERFACE_IP = "127.0.0.1"
-       service_discovery = await construct_service_discovery(
-           SD_MULTICAST_GROUP, SD_PORT, INTERFACE_IP
-       )
-
-       # ...
-       finally:
-           print("Service Discovery close..")
-           service_discovery.close()
 
 Defining the SOME/IP Service
 ----------------------------
 
-For offering a SOME/IP service, you first define a `Service <https://github.com/chrizog/someipy/blob/v1.0.0/src/someipy/service.py#L27>`_ containing **EventGroups** or **Methods** using the `ServiceBuilder <https://github.com/chrizog/someipy/blob/v1.0.0/src/someipy/service.py#L65>`_. Afterwards the Service can be instantiated as a Server- or Client-Instance.
+For offering a SOME/IP service, you first define a `Service <https://github.com/chrizog/someipy/blob/v1.0.0/src/someipy/service.py#L27>`_ containing **EventGroups** or **Methods** using the `ServiceBuilder <https://github.com/chrizog/someipy/blob/v2.0.0/src/someipy/service.py#L65>`_. Afterwards the Service can be instantiated as a Server- or Client-Instance.
 
 In this example, a *temperature_service* with service ID 0x1234 containing a single event group with ID 0x0321 which in turn contains a single event with ID 0x0123. The service has a major version 1 and minor version 0:
 
@@ -143,86 +127,70 @@ In this example, a *temperature_service* with service ID 0x1234 containing a sin
 
    async def main():
        # ...
-       service_discovery = await construct_service_discovery(
-           SD_MULTICAST_GROUP, SD_PORT, INTERFACE_IP
-       )
-
        SAMPLE_SERVICE_ID = 0x1234
        SAMPLE_EVENTGROUP_ID = 0x0321
        SAMPLE_EVENT_ID = 0x0123
        
-       temperature_eventgroup = EventGroup(
-           id=SAMPLE_EVENTGROUP_ID, event_ids=[SAMPLE_EVENT_ID]
-       )
-       temperature_service = (
-           ServiceBuilder()
-           .with_service_id(SAMPLE_SERVICE_ID)
-           .with_major_version(1)
-           .with_eventgroup(temperature_eventgroup)
-           .build()
-       )
+       temperature_event = Event(id=SAMPLE_EVENT_ID, protocol=TransportLayerProtocol.UDP)
+
+        temperature_eventgroup = EventGroup(
+            id=SAMPLE_EVENTGROUP_ID, events=[temperature_event]
+        )
+
+        temperature_service = (
+            ServiceBuilder()
+            .with_service_id(SAMPLE_SERVICE_ID)
+            .with_major_version(1)
+            .with_eventgroup(temperature_eventgroup)
+            .build()
+        )
        # ...
 
 Instantiating the SOME/IP Service
 ---------------------------------
 
-Once the `Service <https://github.com/chrizog/someipy/blob/v1.0.0/src/someipy/service.py#L27>`_ is defined it can be instantiated multiple times.
-For offering a `Service <https://github.com/chrizog/someipy/blob/v1.0.0/src/someipy/service.py#L27>`_ in someipy the `ServerServiceInstance <https://github.com/chrizog/someipy/blob/v1.0.0/src/someipy/server_service_instance.py>`_ class is used. For using a service as client the `ClientServiceInstance <https://github.com/chrizog/someipy/blob/v1.0.0/src/someipy/client_service_instance.py>`_ class is used.
+Once the `Service <https://github.com/chrizog/someipy/blob/v2.0.0/src/someipy/service.py#L27>`_ is defined it can be instantiated multiple times.
+For offering a `Service <https://github.com/chrizog/someipy/blob/v20.0/src/someipy/service.py#L27>`_ in someipy the `ServerServiceInstance <https://github.com/chrizog/someipy/blob/v1.0.0/src/someipy/server_service_instance.py>`_ class is used. For using a service as client the `ClientServiceInstance <https://github.com/chrizog/someipy/blob/v1.0.0/src/someipy/client_service_instance.py>`_ class is used.
 
-Since the construction of `ServerServiceInstance <https://github.com/chrizog/someipy/blob/v1.0.0/src/someipy/server_service_instance.py>`_ is not trivial, the *construct_server_service_instance* factory function is provided. The following information has to be passed to the function:
+The constructor of the *ServerServiceInstance* class requires several parameters:
+- daemon: The *someipy_daemon* object (defined above)
+- service: The *Service* object (defined above)
+- instance_id: A service instance ID (0x5678 in this example)
+- endpoint_ip: The IP address of the network interface on which the service is offered (127.0.0.1 in this example)
+- endpoint_port: The port on which the service is offered (3000 in this example)
+- ttl: The time-to-live for the service discovery entries (5 seconds in this example)
+- cyclic_offer_delay_ms: The period of the cylic offer service SD messages (2000 ms in this example)
 
-- The *Service* object (defined above)
-- A service instance ID (0x5678 in this example)
-- An endpoint tuple consisting of IP and port on which the service is offered (127.0.0.1 and port 3000 in this example)
-- The TTL (time to live) of the service discovery offer messages (5 seconds in this example)
-- The *ServiceDiscoveryProtocol* object (defined above)
-- The period of the service discovery offer messages in milliseconds (2000 ms in this example)
-- The protocol of the service instance: Either TransportLayerProtocol.UDP or TransportLayerProtocol.TCP
-
-After instantiating the Service using the *construct_server_service_instance* function, the returned *ServerServiceInstance* has to be attached to the *ServiceDiscoveryProtocol* object. This is needed so that the *ServerServiceInstance* is informed about subscriptions by clients.
-
-Finally the SOME/IP service can be offered using the *start_offer* method. When exiting your application make sure to use *stop_offer* method on the service instance.
+Afterwards, the the SOME/IP service can be offered using the *start_offer* method. When exiting your application make sure to use *stop_offer* method on the service instance.
 
 .. code-block:: python
 
    from someipy import TransportLayerProtocol, construct_server_service_instance
 
    async def main():
-       # ...
+        # ...
+        SAMPLE_INSTANCE_ID = 0x5678
 
-       SAMPLE_INSTANCE_ID = 0x5678
-       service_instance_temperature = await construct_server_service_instance(
-           temperature_service,
-           instance_id=SAMPLE_INSTANCE_ID,
-           endpoint=(
-               ipaddress.IPv4Address(INTERFACE_IP),
-               3000,
-           ),  # source IP and port of the service
-           ttl=5,
-           sd_sender=service_discovery,
-           cyclic_offer_delay_ms=2000,
-           protocol=TransportLayerProtocol.UDP
-       )
+        service_instance_temperature = ServerServiceInstance(
+            daemon=someipy_daemon,
+            service=temperature_service,
+            instance_id=SAMPLE_INSTANCE_ID,
+            endpoint_ip=interface_ip,
+            endpoint_port=3000,
+            ttl=5,
+            cyclic_offer_delay_ms=2000,
+        )
 
-       # The service instance has to be attached to the ServiceDiscoveryProtocol object, so that
-       # the service instance is notified about subscriptions from other ECUs
-       service_discovery.attach(service_instance_temperature)
-       
-       # Starts sending periodic SD offer messages
-       service_instance_temperature.start_offer()
+    # After constructing a ServerServiceInstances the start_offer method has to be called. This will start an internal timer,
+    # which will periodically send Offer service entries with a period of "cyclic_offer_delay_ms" which has been passed above
+    print("Start offering service..")
+    await service_instance_temperature.start_offer()
 
-       # ...
-       # Before exiting the app: service_instance_temperature.stop_offer()
+    # ...
+    # Before exiting the app: service_instance_temperature.stop_offer()
 
 Sending Events
 --------------
-
-Until now you have defined
-
-- a datatype *TemperatureMsg*
-- started the service discovery
-- defined a SOME/IP service called *temperature_service* containing a single event
-- and instantiated and offered the service using a `ServerServiceInstance <https://github.com/chrizog/someipy/blob/v1.0.0/src/someipy/server_service_instance.py>`_ object.
 
 Now it is time to send events to subscribed clients. First some data has to be prepared: Import and instantiate the *TemperatureMsg* and fill it with some data:
 
@@ -279,13 +247,22 @@ If you are using Linux, make sure to join the multicast group for your network i
    sudo ip addr add 224.224.224.245 dev lo autojoin
    python3 send_events_udp.py
 
-Running Two Applications On The Same Machine
----------------------------------------------
+Start the someipy Daemon
+-----------------------------
 
-For local testing with multiple applications, assign different IP addresses:
+Before running the application, ensure that the someipy daemon is running. The daemon can be started using the following command:
 
 .. code-block:: bash
 
-   sudo ip addr add 127.0.0.2/24 dev lo
-   python3 send_events_udp.py --interface_ip 127.0.0.1
-   python3 receive_events_udp.py --interface_ip 127.0.0.2
+   someipyd --config someipyd.json
+
+The .json configuration file is optional and can be omitted.
+
+Start the Application
+----------------------
+
+Run the application using Python 3:
+
+.. code-block:: bash
+
+   python3 send_events_udp.py
