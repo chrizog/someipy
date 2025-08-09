@@ -21,10 +21,22 @@ Grouping events in eventgroups allows clients to subscribe to multiple events at
 
 If you want to enable clients to subscribe to single events more granularly, create multiple eventgroups or even one eventgroup for each event. This will require more service discovery traffic; however, it may lead to sending only events that are actually needed by a particular client.
 
-Step 1: Define a Service
+Step 1: Connect to the someipy Daemon
+------------------------------------------------
+
+The first step is to connect to the someipy daemon. The daemon is a separate process communicating with the application using someipy via a Unix Domain Socket (UDS). The daemon is responsible for handling all communication with the SOME/IP network, including service discovery and message sending/receiving.
+
+.. code-block:: python
+
+    someipy_daemon = await connect_to_someipy_daemon()
+
+In case, a non-default Unix Domain Socket path is used, a config dictionary can be passed to the *connect_to_someipy_daemon* function.
+
+
+Step 2: Define a Service
 ------------------------
 
-In order to offer a service containing a SOME/IP event, we will define a ``Service`` first, which is used afterwards to instantiate a ``ServerServiceInstance``. The ``Service`` will contain a single event with ID 0x0123 in the eventgroup with ID 0x0321. The ``ServiceBuilder`` class is used to build the ``Service`` object.
+In order to offer a service containing a SOME/IP event, we will define a ``Service`` first, which is used afterwards to instantiate a ``ServerServiceInstance``. The ``Service`` will contain a single event with ID 0x0123 in the eventgroup with ID 0x0321. The ``ServiceBuilder`` class is used to build the ``Service`` object. Note, that the transport protocol (TCP or UDP) is defined per event and not per service. This means that you can have events in the same service using different transport protocols.
 
 .. code-block:: python
 
@@ -33,9 +45,12 @@ In order to offer a service containing a SOME/IP event, we will define a ``Servi
    SAMPLE_EVENTGROUP_ID = 0x0321
    SAMPLE_EVENT_ID = 0x0123
 
+   temperature_event = Event(id=SAMPLE_EVENT_ID, protocol=TransportLayerProtocol.UDP)
+
    temperature_eventgroup = EventGroup(
-       id=SAMPLE_EVENTGROUP_ID, event_ids=[SAMPLE_EVENT_ID]
+       id=SAMPLE_EVENTGROUP_ID, events=[temperature_event]
    )
+
    temperature_service = (
        ServiceBuilder()
        .with_service_id(SAMPLE_SERVICE_ID)
@@ -44,52 +59,48 @@ In order to offer a service containing a SOME/IP event, we will define a ``Servi
        .build()
    )
 
-Step 2: Instantiate the Service
+Step 3: Instantiate the Service
 -------------------------------
 
-The previously defined ``Service`` can be instantiated as one or multiple service instances. Since we are offering events as a server, a ``ServerServiceInstance`` object is created using the ``construct_server_service_instance`` function. The ``construct_server_service_instance`` is a coroutine and therefore has to be ``await``ed.
+The previously defined ``Service`` can be instantiated as one or multiple service instances. Since we are offering events as a server, a ``ServerServiceInstance`` object is created.
 
-You can choose to either use UDP or TCP as the transport protocol. Make sure that the configuration matches the client subscribing to the service.
+The constructor of the ``ServerServiceInstance`` class requires several parameters:
+
+- daemon: The *someipy_daemon* object (defined above)
+- service: The *Service* object (defined above)
+- instance_id: A service instance ID (0x5678 in this example)
+- endpoint_ip: The IP address of the network interface on which the service is offered (127.0.0.1 in this example)
+- endpoint_port: The port on which the service is offered (3000 in this example)
+- ttl: The time-to-live for the service discovery entries (5 seconds in this example)
+- cyclic_offer_delay_ms: The period of the cylic offer service SD messages (2000 ms in this example)
 
 .. code-block:: python
 
-   # For sending events use a ServerServiceInstance
-   service_instance_temperature = await construct_server_service_instance(
-       temperature_service,
-       instance_id=SAMPLE_INSTANCE_ID,
-       endpoint=(
-           ipaddress.IPv4Address(INTERFACE_IP),
-           3000,
-       ),  # source IP and port of the service
-       ttl=5,
-       sd_sender=service_discovery,
-       cyclic_offer_delay_ms=2000,
-       protocol=TransportLayerProtocol.UDP,
-   )
+   service_instance_temperature = ServerServiceInstance(
+        daemon=someipy_daemon,
+        service=temperature_service,
+        instance_id=SAMPLE_INSTANCE_ID,
+        endpoint_ip=interface_ip,
+        endpoint_port=3000,
+        ttl=5,
+        cyclic_offer_delay_ms=2000,
+    )
 
-The parameters ``ttl`` and ``cyclic_offer_delay_ms`` are described in :doc:`service_discovery`.
+The parameters ``ttl`` and ``cyclic_offer_delay_ms`` are described in detail in :doc:`service_discovery`.
 
 .. note::
-   **Multiple service instances:** If you want to offer multiple service instances in the same application, you would simply construct another service instance here. Read the example application `offer_multiple_services.py <https://github.com/chrizog/someipy/blob/v1.0.0/example_apps/offer_multiple_services.py>`_ for more details.
+   **Multiple service instances:** If you want to offer multiple service instances in the same application, you would simply construct another service instance here. Read the example application `offer_multiple_services.py <https://github.com/chrizog/someipy/blob/v2.0.0/example_apps/offer_multiple_services.py>`_ for more details.
 
-Step 3: Announce the Service via Service Discovery
+Step 4: Announce the Service via Service Discovery
 --------------------------------------------------
 
-At this point, clients are not able to subscribe to the ``ServerServiceInstance`` and to its eventgroup with ID ``0x0321``. First, we need to attach the ``ServerServiceInstance`` to service discovery. This will enable the ``ServerServiceInstance`` to be notified about new subscriptions from clients. An observer pattern is implemented in which the ``ServerServiceInstance`` is the observer.
-
-It is assumed that the ``service_discovery`` object was instantiated beforehand. For more information on that topic, read :doc:`service_discovery`.
+At this point, clients are not able to subscribe to the ``ServerServiceInstance`` and to its eventgroup with ID ``0x0321``. The next step is to use ``start_offer`` to announce the service instance to potential clients. The ``start_offer`` function will communicate with the someipy daemon which will take care of periodically sending service discovery messages with offer entries.
 
 .. code-block:: python
 
-   service_discovery.attach(service_instance_temperature)
+   await service_instance_temperature.start_offer()
 
-The next step is to use ``start_offer`` to announce the service instance to potential clients. The ``start_offer`` function will start an internal timer with a cycle of ``cyclic_offer_delay_ms`` sending service discovery messages with offer entries.
-
-.. code-block:: python
-
-   service_instance_temperature.start_offer()
-
-Step 4: Sending Event Notifications to Clients
+Step 5: Sending Event Notifications to Clients
 -----------------------------------------------
 
 Now that the service is offered, clients can subscribe to the eventgroup with ID ``0x0321`` and the server can send events to the clients. The ``send_event`` function expects a ``bytes``-object which is typically created by serialized structured data:
@@ -102,3 +113,13 @@ Now that the service is offered, clients can subscribe to the eventgroup with ID
    )
 
 Typical sending strategies for SOME/IP events are **cyclic updates** or **update on change**. Update on change means that an event is sent whenever the contained value changes. In a cyclic update, the event would be sent even if the contained data has not changed since the last publish.
+
+Step 6: Shutdown the Application
+----------------------------
+
+At the end of your application, make sure to stop offering the service instance and disconnect from the someipy daemon to ensure a clean shutdown of the application.
+
+.. code-block:: python
+
+   await service_instance_temperature.stop_offer()
+   await someipy_daemon.disconnect_from_daemon()

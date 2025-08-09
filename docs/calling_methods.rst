@@ -35,7 +35,16 @@ In this example, we will call a SOME/IP method that calculates the sum of two si
 
 Details on defining data types can be found :doc:`here <service_interface>`.
 
-Step 2: Definition of the Service
+Step 2: Connect to the someipy Daemon
+----------------------------------
+
+The first step is to connect to the someipy daemon. The daemon is a separate process communicating with the application using someipy via a Unix Domain Socket (UDS). The daemon is responsible for handling all communication with the SOME/IP network, including service discovery and message sending/receiving.
+
+.. code-block:: python
+
+    someipy_daemon = await connect_to_someipy_daemon()
+
+Step 3: Definition of the Service
 ----------------------------------
 
 A SOME/IP method is part of a service and so we will define a ``Service`` as the next step using the method ID and the major version of the service. In the third step, this service will be used for creating a ``ClientServiceInstance`` on which we can call the SOME/IP method. The ``ServiceBuilder`` class offers a fluent API, which is used for creation of the ``Service`` object.
@@ -44,43 +53,37 @@ A SOME/IP method is part of a service and so we will define a ``Service`` as the
 
    SAMPLE_SERVICE_ID = 0x1234
 
+   addition_method = Method(
+       id=SAMPLE_METHOD_ID,
+       protocol=TransportLayerProtocol.UDP,
+   )
+
    addition_service = (
        ServiceBuilder()
        .with_service_id(SAMPLE_SERVICE_ID)
        .with_major_version(1)
+       .with_method(addition_method)
        .build()
    )
 
-Step 3: Instantiate the Service
+Step 4: Instantiate the Service
 -------------------------------
 
 The previously defined ``Service`` can be instantiated into one or multiple service instances. Since we want to call (and not offer) a method, we will instantiate a ``ClientServiceInstance``.
-The ``construct_client_service_instance`` is a coroutine since it uses ``asyncio`` internally and therefore has to be ``await``ed.
-
-- You need to pass the instance ID (``SAMPLE_INSTANCE_ID``) of the server service instance that offers the method.
-- The endpoint that is passed is the endpoint (IP address and port) of the client and not of the server.
-- The ``ttl`` parameter is the lifetime of a potential subscription in seconds. This is only relevant if you want to :doc:`subscribe to an event <subscribing_events>`.
-- It is assumed that the ``service_discovery`` object was instantiated beforehand. For more information on that topic, read :doc:`service_discovery`.
-- You can choose either UDP or TCP as the transport protocol. Make sure that it matches the service offered by the server.
-
-We will also attach the ``ClientServiceInstance`` to the ``ServiceDiscovery`` object. This allows the ``ClientServiceInstance`` to be notified about service discovery messages.
 
 .. code-block:: python
 
    SAMPLE_INSTANCE_ID = 0x5678
 
-   client_instance_addition = await construct_client_service_instance(
+   client_instance_addition = ClientServiceInstance(
+       daemon=someipy_daemon,
        service=addition_service,
        instance_id=SAMPLE_INSTANCE_ID,
-       endpoint=(ipaddress.IPv4Address(interface_ip), 3002),
-       ttl=5,
-       sd_sender=service_discovery,
-       protocol=TransportLayerProtocol.UDP,
+       endpoint_ip=interface_ip,
+       endpoint_port=3002,
    )
 
-   service_discovery.attach(client_instance_addition)
-
-Step 4: Calling the Method
+Step 5: Calling the Method
 ---------------------------
 
 Finally, we need to setup the method parameters for the request and call the SOME/IP method offered by the server. In this case, the parameter to the method is an ``Addends`` object. After creating the ``Addends`` object, we will call the method on the ``ClientServiceInstance`` using the ``call_method`` function. ``call_method`` is a coroutine which has to be awaited and will not block until the response from the server is received. This allows other tasks to be scheduled while waiting for a response. The ``call_method`` function expects a method ID identifying the method on the server to be called. A server could offer multiple methods inside the same service. The second parameter is the payload to be sent with the request: The ``Addends`` object is serialized into a ``bytes`` object and passed to the call.
@@ -97,32 +100,36 @@ To avoid the ``RuntimeError`` it is possible to test whether the service was alr
 
 .. code-block:: python
 
-   method_parameter = Addends(addend1=1, addend2=2)
-   try:
-       # You can query if the service offering the method was already found via SOME/IP service discovery
-       print(f"Service found: {client_instance_addition.service_found()}")
-       while not client_instance_addition.service_found():
-           print("Waiting for service...")
-           await asyncio.sleep(0.5)
-       # The call_method function can raise an error, e.g. if no TCP connection to the server can be established
-       # In case there is an application specific error in the server, the server still returns a response and the
-       # message_type and return_code are evaluated.
-       method_result = await client_instance_addition.call_method(
-           SAMPLE_METHOD_ID, method_parameter.serialize()
-       )
-       if method_result.message_type == MessageType.RESPONSE:
-           print(
-               f"Received result for method: {' '.join(f'0x{b:02x}' for b in method_result.payload)}"
-           )
-           if method_result.return_code == ReturnCode.E_OK:
-               sum = Sum().deserialize(method_result.payload)
-               print(f"Sum: {sum.value.value}")
-           else:
-               print(
-                   f"Method call returned an error: {method_result.return_code}"
-               )
-       elif method_result.message_type == MessageType.ERROR:
-           print("Server returned an error...")
-           # In case the server includes an error message in the payload, it can be deserialized and printed
-   except Exception as e:
-       print(f"Error during method call: {e}")
+    method_parameter = Addends(addend1=1, addend2=2)
+
+    while True:
+        try:
+            method_result = await client_instance_addition.call_method(
+                SAMPLE_METHOD_ID, method_parameter.serialize()
+            )
+            if method_result.message_type == MessageType.RESPONSE:
+                print(
+                    f"Received result for method: {' '.join(f'0x{b:02x}' for b in method_result.payload)}"
+                )
+                if method_result.return_code == ReturnCode.E_OK:
+                    sum = Sum().deserialize(method_result.payload)
+                    print(f"Sum: {sum.value.value}")
+                else:
+                    print(
+                        f"Method call returned an error: {method_result.return_code}"
+                    )
+            elif method_result.message_type == MessageType.ERROR:
+                print("Server returned an error..")
+                # In case the server includes an error message in the payload, it can be deserialized and printed
+        except Exception as e:
+            print(f"Error during method call: {e}")
+
+Step 6: Shutdown the Application
+----------------------------
+
+At the end of your application, make sure to stop offering the service instance and disconnect from the someipy daemon to ensure a clean shutdown of the application.
+
+.. code-block:: python
+
+   await service_instance_temperature.stop_offer()
+   await someipy_daemon.disconnect_from_daemon()
