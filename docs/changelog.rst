@@ -8,6 +8,11 @@ HEAD
 
 Code changes to ``master`` that are *not* in the latest release:
 
+Release v2.0.0
+-----------------
+- Introduced a new architecture with a `someipyd` daemon for centralized network handling.
+- Refined application API for easier service definition and instantiation.
+
 Release v1.0.0
 --------------
 

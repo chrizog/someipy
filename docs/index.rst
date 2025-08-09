@@ -41,5 +41,4 @@ Table of Contents
     subscribing_events
     service_discovery
     service_interface
-    rpi
     changelog

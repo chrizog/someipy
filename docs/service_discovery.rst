@@ -26,59 +26,53 @@ Service discovery messages are actually SOME/IP messages, but filled with specif
 
 The specification of the SOME/IP service discovery protocol can be found `here <https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPServiceDiscoveryProtocol.pdf>`_.
 
-Common SOME/IP Service Discovery Parameters in someipy
+Service Discovery Parameters in the someipy Daemon
 ------------------------------------------------------
-As shown in the :doc:`Getting Started guide <index>` one of the first steps is to construct a ``ServiceDiscoveryProtocol`` object. This step is common for both servers and clients.
+As shown in the :doc:`someipy Daemon guide <someipy_daemon>`, the daemon is responsible for handling all communication with the SOME/IP network, including service discovery and message sending/receiving. The daemon uses a specific configuration for the service discovery messages, which can be set in the daemon's configuration file.
 
-.. code-block:: python
+The configuration file is a JSON file that contains the following optional parameters:
 
-   service_discovery = await construct_service_discovery(SD_MULTICAST_GROUP, SD_PORT, INTERFACE_IP)
+.. code-block:: json
 
-The ``construct_service_discovery`` takes three parameters:
+   {
+    "sd_address": "224.224.224.245",
+    "sd_port": 30490,
+    "interface": "127.0.0.1",
+  }
 
-- ``multicast_group_ip``: The IP address of the multicast group used for SOME/IP service discovery, typically "224.224.224.245".
-- ``sd_port``: The port used for SOME/IP service discovery, typically 30490.
-- ``unicast_ip``: The IP address of the participant's network interface, i.e., "your" IP address.
+
+- ``sd_address``: The IP address of the multicast group used for SOME/IP service discovery. The default value is "224.224.224.245".
+- ``sd_port``: The port used for SOME/IP service discovery. The default value is 30490.
+- ``interface``: The IP address of the network interface on which the daemon listens for service discovery messages. The default value is "127.0.0.1".
 
 Server-Side Parameters
 ----------------------
 
-For offering a service instance, a ``ServerServiceInstance`` is used in someipy. This class is constructed using ``construct_server_service_instance`` and allows to specify two more service discovery specific parameters. Since these parameters can be set independently for multiple service instances, they are not part of the common parameters above.
+For offering a service instance, a ``ServerServiceInstance`` is used in someipy. The constructor of this class allows to specify two service discovery related parameters:
 
 .. code-block:: python
 
-   service_instance_temperature = await construct_server_service_instance(
-       temperature_service,
-       instance_id=SAMPLE_INSTANCE_ID,
-       endpoint=(
-           ipaddress.IPv4Address(INTERFACE_IP),
-           3000,
-       ),
-       ttl=5,
-       sd_sender=service_discovery,
-       cyclic_offer_delay_ms=2000,
-       protocol=TransportLayerProtocol.UDP
-   )
+   service_instance_temperature = ServerServiceInstance(
+        daemon=someipy_daemon,
+        service=temperature_service,
+        instance_id=SAMPLE_INSTANCE_ID,
+        endpoint_ip=interface_ip,
+        endpoint_port=3000,
+        ttl=5,
+        cyclic_offer_delay_ms=2000,
+    )
 
-- The parameter ``ttl`` specifies the lifetime of the SD offer entries in seconds. These entries are sent cyclically in SD messages by the application offering a service. The offer entries are only valid for ``ttl`` seconds.
-- The parameter ``cyclic_offer_delay_ms`` specifies the period in milliseconds with which the cyclic SD offer entries are sent.
+- ``ttl``: The lifetime of the SD offer entries in seconds. The offer entries are sent cyclically in SD messages by the application offering a service. The offer entries are only valid for ``ttl`` seconds.
+- ``cyclic_offer_delay_ms``: The period in milliseconds with which the cyclic SD offer entries are sent. This is the delay between two consecutive service discovery messages that contain the offer entries.
 
-Since also the subscription has a lifetime (read below), the subscription is cyclically renewed with a *subscribe entry* and a *subscribe ack entry*. If the ``ttl`` is configured smaller than the ``cyclic_offer_delay_ms``, your service appears to be not available for a while. E.g., ``ttl`` is configured as one second and ``cyclic_offer_delay_ms`` with 2000ms, the service will not be available for a second until the next cyclic offer entry is sent.
+Make sure that the ``ttl``is configured larger than the ``cyclic_offer_delay_ms``. If the ``ttl`` is smaller than the ``cyclic_offer_delay_ms``, your service appears to be not available for a while. E.g., if ``ttl`` is configured as one second and ``cyclic_offer_delay_ms`` with 2000ms, the service will not be available for a second until the next cyclic offer entry is sent.
+
 
 Client-Side Parameters
 ----------------------
 
-For using a service as a client a ``ClientServiceInstance`` object has to be constructed in someipy which is done using the ``construct_client_service_instance`` factory function. Since these parameters can be set independently for multiple service instances, they are not part of the common parameters above and are specific to client instances.
+When subscribing to eventgroups as a client, the lifetime of the subscription has to be specified. This is done by the ``ttl_subscription_seconds`` parameter of the ``subscribe_eventgroup`` function of the ``ClientServiceInstance`` class. In case the subscription is not renewed, the subscription will be removed after this time. Ensure that the ``ttl_subscription_seconds`` is larger than the ``cyclic_offer_delay_ms`` of the server offering the service. If the ``ttl_subscription_seconds`` is smaller than the ``cyclic_offer_delay_ms``, the subscription will be removed before the next cyclic offer entry is sent, and the client will not receive any events.
 
 .. code-block:: python
 
-   client_instance_addition = await construct_client_service_instance(
-           service=addition_service,
-           instance_id=SAMPLE_INSTANCE_ID,
-           endpoint=(ipaddress.IPv4Address(INTERFACE_IP), 3002),
-           ttl=5,
-           sd_sender=service_discovery,
-           protocol=TransportLayerProtocol.UDP
-       )
-
-- The parameter ``ttl`` specifies the lifetime of eventgroup subscriptions in seconds. The *subscribe eventgroup entry* is sent from an application that wishes to receive event updates to the publishing application. The ``ttl`` specifies how long the subscription is valid and the server will send SOME/IP events to the subscribed client. Therefore, the subscription is cyclically renewed by sending a *subscribe eventgroup entry* to the server.
+   service_instance_temperature.subscribe_eventgroup(temperature_eventgroup, ttl_subscription_seconds=5.0)

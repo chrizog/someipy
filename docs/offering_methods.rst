@@ -10,7 +10,18 @@ Request and response messages can carry a serialized payload. Typically, the pay
 
 In SOME/IP there is also the possibility of fire&forget communication. The client sends a request message and does not expect a response from the server. The fire&forget communication is not implemented in someipy yet.
 
-Step 1: Define the Data Types for Request and Response
+Step 1: Connect to the someipy Daemon
+------------------------------------------------
+
+The first step is to connect to the someipy daemon. The daemon is a separate process communicating with the application using someipy via a Unix Domain Socket (UDS). The daemon is responsible for handling all communication with the SOME/IP network, including service discovery and message sending/receiving.
+
+.. code-block:: python
+
+    someipy_daemon = await connect_to_someipy_daemon()
+
+In case, a non-default Unix Domain Socket path is used, a config dictionary can be passed to the *connect_to_someipy_daemon* function.
+
+Step 2: Define the Data Types for Request and Response
 ------------------------------------------------------
 
 In this example, we will offer a SOME/IP service that calculates the sum of two signed integers and returns the result back to the client. Therefore, we need to define two data types: one type ``Addends`` is passed as an argument in the request and the second data type ``Sum`` is used for transmitting the result in the response message.
@@ -35,7 +46,7 @@ In this example, we will offer a SOME/IP service that calculates the sum of two 
 
 Details on defining data types can be found :doc:`here <service_interface>`.
 
-Step 2: Implementing the Method Handler
+Step 3: Implementing the Method Handler
 ---------------------------------------
 
 In the next step, we will implement the method handler. This function will receive a ``bytes`` object and a Tuple with the caller's IP address and port. The received ``bytes`` object will be deserialized into an ``Addends`` object. After calculating the sum, the ``Sum`` object will be serialized and returned. The method handler has to return a ``MethodResult`` object which has the following members:
@@ -79,7 +90,7 @@ The method handler is an asynchronous function (``async def``). This allows for 
        result.payload = sum.serialize()
        return result
 
-Step 3: Definition of the Service
+Step 4: Definition of the Service
 ----------------------------------
 
 In order to offer a service containing a SOME/IP method, we will instantiate a ``Method`` and a ``Service`` object. The ``Method`` class holds the method ID and the reference to the method handler function. The ``Service`` object contains the ``Method`` objects and is used afterwards to instantiate a ``ServerServiceInstance``. The ``Service`` will contain a single method with ID 0x1234. The ``ServiceBuilder`` class is used to create the ``Service`` object.
@@ -90,51 +101,65 @@ It's also possible to define multiple ``Method``s and add them all to the ``Serv
 
    SAMPLE_SERVICE_ID = 0x1234
 
-   addition_method = Method(id=SAMPLE_METHOD_ID, method_handler=add_method_handler)
+   addition_method = Method(
+        id=SAMPLE_METHOD_ID,
+        protocol=TransportLayerProtocol.UDP,
+        method_handler=add_method_handler,
+    )
 
-   addition_service = (
-       ServiceBuilder()
-       .with_service_id(SAMPLE_SERVICE_ID)
-       .with_major_version(1)
-       .with_method(addition_method)
-       .build()
-   )
+    addition_service = (
+        ServiceBuilder()
+        .with_service_id(SAMPLE_SERVICE_ID)
+        .with_major_version(1)
+        .with_method(addition_method)
+        .build()
+    )
 
-Step 4: Instantiate the Service
+
+Step 5: Instantiate the Service
 -------------------------------
 
-The previously defined ``Service`` can be instantiated as one or multiple service instances. Since we are offering the method as a server, a ``ServerServiceInstance`` object is created using the ``construct_server_service_instance`` function. The ``construct_server_service_instance`` is a coroutine and therefore has to be awaited.
+The previously defined ``Service`` can be instantiated as one or multiple service instances. Since we are offering a method as a server, a ``ServerServiceInstance`` object is created.
 
-- You need to pass an instance ID (``SAMPLE_INSTANCE_ID``) to the function.
-- The endpoint that is passed is the endpoint (IP address and port) of the server and to which the client will send the requests.
-- The ``ttl`` parameter will be used for sending service discovery offer messages. The ``ttl`` in seconds is the lifetime of the service offer.
-- It is assumed that the ``service_discovery`` object was instantiated beforehand. For more information on that topic, read :doc:`service_discovery`.
-- The ``cyclic_offer_delay_ms`` is the interval in which the service instance will be offered periodically by the SOME/IP service discovery to clients.
-- You can choose to either use UDP or TCP as the transport protocol used for the service instance.
+The constructor of the ``ServerServiceInstance`` class requires several parameters:
+
+- daemon: The *someipy_daemon* object (defined above)
+- service: The *Service* object (defined above)
+- instance_id: A service instance ID (0x5678 in this example)
+- endpoint_ip: The IP address of the network interface on which the service is offered (127.0.0.1 in this example)
+- endpoint_port: The port on which the service is offered (3000 in this example)
+- ttl: The time-to-live for the service discovery entries (5 seconds in this example)
+- cyclic_offer_delay_ms: The period of the cylic offer service SD messages (2000 ms in this example)
 
 .. code-block:: python
 
-   SAMPLE_INSTANCE_ID = 0x5678
+    SAMPLE_INSTANCE_ID = 0x5678
 
-   service_instance_addition = await construct_server_service_instance(
-       addition_service,
-       instance_id=SAMPLE_INSTANCE_ID,
-       endpoint=(
-           ipaddress.IPv4Address(interface_ip),
-           3000,
-       ),  # source IP and port of the service
-       ttl=5,
-       sd_sender=service_discovery,
-       cyclic_offer_delay_ms=2000,
-       protocol=TransportLayerProtocol.UDP,
-   )
+    service_instance_addition = ServerServiceInstance(
+        daemon=someipy_daemon,
+        service=addition_service,
+        instance_id=SAMPLE_INSTANCE_ID,
+        endpoint_ip=interface_ip,
+        endpoint_port=3000,
+        ttl=5,
+        cyclic_offer_delay_ms=2000,
+    )
 
-Step 5: Announce the Service via Service Discovery
+Step 6: Announce the Service via Service Discovery
 --------------------------------------------------
 
-Finally, the service instance has to be offered to clients via service discovery. This step is not specific to SOME/IP methods. For that purpose, we will notify the ``service_discovery`` about the service instance using the ``attach`` function and call the ``start_offer`` function on the service instance. The ``start_offer`` function starts an internal timer with a period of ``cyclic_offer_delay_ms`` and sends out SOME/IP SD offers to potential clients.
+ The next step is to use ``start_offer`` to announce the service instance to potential clients. The ``start_offer`` function will communicate with the someipy daemon which will take care of periodically sending service discovery messages with offer entries.
 
 .. code-block:: python
 
-   service_discovery.attach(service_instance_temperature)
-   service_instance_temperature.start_offer()
+   await service_instance_addition.start_offer()
+
+Step 7: Shutdown the Application
+----------------------------
+
+At the end of your application, make sure to stop offering the service instance and disconnect from the someipy daemon to ensure a clean shutdown of the application.
+
+.. code-block:: python
+
+   await service_instance_temperature.stop_offer()
+   await someipy_daemon.disconnect_from_daemon()
