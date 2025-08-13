@@ -2,5 +2,5 @@
     "sd_address": "224.224.224.245",
     "sd_port": 30490,
     "log_level": "DEBUG",
-    "interface": "127.0.0.2"
+    "interface": "127.0.0.1"
 }

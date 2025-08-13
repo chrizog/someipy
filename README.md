@@ -8,7 +8,7 @@ If you want to connect, have a feature request, bug report or need support, send
 
 ## Documentation :pencil2:
 
-:link: [https://chrizog.github.io/someipy/](https://chrizog.github.io/someipy/)
+:link: [https://someipy.readthedocs.io/en/latest/](https://someipy.readthedocs.io/en/latest/)
 
 
 ## What is someipy?
@@ -46,20 +46,3 @@ pip3 install someipy
 ## Example Applications
 
 In the directory [example_apps](./example_apps/), examples including explanations, can be found for using the someipy library.
-
-## Supported Features, Limitations and Deviations
-
-The library is still under development. The current major limitations and deviations from the protocol specifications are listed below.
-
-### SOME/IP
-
-- Only unicast services are supported.
-- SOME/IP-TP is not supported.
-- IPv6 endpoints are not supported.
-- SOME/IP fields are not supported.
-
-### Service Discovery
-
-- Configuration and load balancing options in SOME/IP SD messages are not supported.
-- Stop subscribe message of notifications is not supported
-- The Initial Wait Phase and Repetition Phase of the Service Discovery specification are skipped. The Main Phase is directly entered, i.e. SD Offer Entries are immediately sent cyclically.
