@@ -62,7 +62,7 @@ async def main():
     )
 
     # After constructing a ServerServiceInstances the start_offer method has to be called. This will start an internal timer,
-    # which will periodically send  Offer service entries with a period of "cyclic_offer_delay_ms" which has been passed above
+    # which will periodically send Offer service entries with a period of "cyclic_offer_delay_ms" which has been passed above
     print("Start offering service..")
     await service_instance_temperature.start_offer()
 

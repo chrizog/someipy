@@ -106,7 +106,7 @@ class ServerServiceInstance(ServerInstanceInterface):
             service_id=self._service.id,
             instance_id=self._instance_id,
             major_version=self._service.major_version,
-            client_id=1,  # TODO: Client ID
+            client_id=0,
             session_id=1,  # TODO: Session ID
             eventgroup_id=eventgroup_id,
             event=event.to_json(),
