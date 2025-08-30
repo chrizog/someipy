@@ -62,6 +62,10 @@ class MethodCall:
 
 
 class ClientServiceInstance(ClientInstanceInterface):
+    """Client-side representation of a SOME/IP service instance.
+
+    This class provides methods to call SOME/IP methods and to subscribe to SOME/IP events.
+    """
 
     def __init__(
         self,
@@ -72,6 +76,23 @@ class ClientServiceInstance(ClientInstanceInterface):
         endpoint_port: int,
         client_id: int = 0,
     ):
+        """Initialize a ClientServiceInstance.
+
+        Parameters
+        ----------
+        daemon : SomeIpDaemonClient
+            Daemon client used to communicate with the someipy daemon.
+        service : Service
+            Service configuration for this instance.
+        instance_id : int
+            Instance ID for this service instance.
+        endpoint_ip : str
+            IP address of the endpoint on which the service instance is reachable (method responses or reception of events).
+        endpoint_port : int
+            Port of the endpoint on which the service instance is reachable.
+        client_id : int, optional
+            Client ID used for this client service instance. Default: 0.
+        """
         self._daemon: SomeIpDaemonClient = daemon
         self._service: Service = service
         self._instance_id: int = instance_id
@@ -90,26 +111,28 @@ class ClientServiceInstance(ClientInstanceInterface):
 
     @property
     def service(self) -> Service:
+        """Return the associated Service object for this client instance."""
         return self._service
 
     @property
     def instance_id(self) -> int:
+        """Return the instance ID for this client service instance."""
         return self._instance_id
 
     @property
     def endpoint(self) -> Tuple[str, int]:
+        """Return the (IP, port) endpoint for this client instance."""
         return (self._endpoint_ip, self._endpoint_port)
 
     def register_callback(self, callback: Callable[[int, bytes], None]) -> None:
-        """
-        Register a callback function to be called when a SOME/IP event is received.
+        """Register a callback for received SOME/IP events.
 
-        Args:
-            callback (Callable[[SomeIpMessage], None]): The callback function to be registered.
-                This function should take a SomeIpMessage object as its only argument and return None.
+        The registered callback will be invoked with (event_id, payload) when an event is received.
 
-        Returns:
-            None
+        Parameters
+        ----------
+        callback : Callable[[int, bytes], None]
+            Callback function invoked when an event is received.
         """
         self._event_callback = callback
 

@@ -7,11 +7,10 @@ from someipy import (
     MessageType,
     ReturnCode,
     connect_to_someipy_daemon,
-)
-from someipy.client_service_instance import (
     ClientServiceInstance,
+    Method,
+    ServiceBuilder,
 )
-from someipy.service import Method, ServiceBuilder
 from someipy.someipy_logging import set_someipy_log_level
 from addition_method_parameters import Addends, Sum
 

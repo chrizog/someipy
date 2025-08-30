@@ -7,9 +7,9 @@ from someipy import (
     ServiceBuilder,
     EventGroup,
     connect_to_someipy_daemon,
+    ServerServiceInstance,
+    Event,
 )
-from someipy.server_service_instance import ServerServiceInstance
-from someipy.service import Event
 from someipy.someipy_logging import set_someipy_log_level
 from someipy.serialization import Uint8, Uint64, Float32
 from temperature_msg import TemparatureMsg

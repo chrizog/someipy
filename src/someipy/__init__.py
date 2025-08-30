@@ -1,11 +1,7 @@
 from ._internal.transport_layer_protocol import TransportLayerProtocol  # noqa: F401
-from .service import Service, ServiceBuilder, EventGroup  # noqa: F401
+from .service import Service, ServiceBuilder, EventGroup, Method, Event  # noqa: F401
 from .server_service_instance import ServerServiceInstance  # noqa: F401
-from .client_service_instance import (
-    ClientServiceInstance,
-    MethodResult,
-)  # noqa: F401
-
+from .client_service_instance import ClientServiceInstance  # noqa: F401
 from ._internal.someip_message import SomeIpMessage  # noqa: F401
 from ._internal.method_result import MethodResult  # noqa: F401
 from ._internal.return_codes import ReturnCode  # noqa: F401

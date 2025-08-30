@@ -4,10 +4,16 @@ import logging
 import sys
 from typing import Tuple
 
-from someipy import TransportLayerProtocol, MethodResult, ReturnCode, MessageType
-from someipy import connect_to_someipy_daemon
-from someipy.server_service_instance import ServerServiceInstance
-from someipy.service import ServiceBuilder, Method
+from someipy import (
+    TransportLayerProtocol,
+    MethodResult,
+    ReturnCode,
+    MessageType,
+    ServerServiceInstance,
+    connect_to_someipy_daemon,
+    ServiceBuilder,
+    Method,
+)
 from someipy.someipy_logging import set_someipy_log_level
 from someipy.serialization import Sint32
 from addition_method_parameters import Addends, Sum

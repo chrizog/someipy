@@ -1,5 +1,4 @@
 import asyncio
-import ipaddress
 import logging
 import sys
 
@@ -7,10 +6,10 @@ from someipy import (
     TransportLayerProtocol,
     ServiceBuilder,
     EventGroup,
+    connect_to_someipy_daemon,
+    ServerServiceInstance,
+    Event,
 )
-from someipy._internal.someipy_daemon_client import connect_to_someipy_daemon
-from someipy.server_service_instance import ServerServiceInstance
-from someipy.service import Event
 from someipy.someipy_logging import set_someipy_log_level
 from someipy.serialization import Uint8, Uint64, Float32
 from temperature_msg import TemparatureMsg
