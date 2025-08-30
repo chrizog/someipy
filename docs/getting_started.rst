@@ -1,10 +1,10 @@
 Getting Started
-===============
+=================
 
-This guide demonstrates how to create a SOME/IP service using someipy that broadcasts temperature measurements every second. The complete example is available in the `example applications on GitHub <https://github.com/chrizog/someipy/blob/v2.0.0/example_apps/send_events_udp.py>`_.
+This guide demonstrates how to create a SOME/IP service using someipy that broadcasts temperature measurements every second using SOME/IP events. The complete example is available in the `example applications on GitHub <https://github.com/chrizog/someipy/blob/v2.0.0/example_apps/send_events_udp.py>`_.
 
 Prerequisites
-------------
+----------------
 
 - Linux (Ubuntu 22.04 or equivalent)
 - Python 3.8+
@@ -19,12 +19,12 @@ Install someipy from PyPI:
 
    pip3 install someipy
 
-Service Datatype Definition
+Service Data Type Definition
 ---------------------------
 
 Define the temperature data structure using Python dataclasses. No IDL files required.
 
-Create **temperature_msg.py**:
+Create ``temperature_msg.py``:
 
 .. code-block:: python
 
@@ -64,7 +64,7 @@ someipy is an `asyncio <https://docs.python.org/3/library/asyncio.html>`_ based 
 
 First we will set up our application's structure. Typically in an asyncio application, a main coroutine-function is added which is executed using `asyncio.run <https://docs.python.org/3/library/asyncio-runner.html#id1>`_. Our application's logic will be added inside the main coroutine-function *async def main*.
 
-Create **send_events_udp.py** with the following structure:
+Create ``send_events_udp.py`` with the following structure:
 
 .. code-block:: python
 

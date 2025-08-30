@@ -2,12 +2,15 @@ import asyncio
 import logging
 import sys
 
-from someipy import ServiceBuilder, EventGroup, SomeIpMessage, TransportLayerProtocol
-from someipy import connect_to_someipy_daemon
-from someipy.client_service_instance import (
+from someipy import (
+    ServiceBuilder,
+    EventGroup,
+    SomeIpMessage,
+    TransportLayerProtocol,
     ClientServiceInstance,
+    connect_to_someipy_daemon,
+    Event,
 )
-from someipy.service import Event
 from someipy.someipy_logging import set_someipy_log_level
 from temperature_msg import TemparatureMsg
 

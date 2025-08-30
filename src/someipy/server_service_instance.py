@@ -26,6 +26,29 @@ _logger_name = "server_service_instance"
 
 
 class ServerServiceInstance(ServerInstanceInterface):
+    """Server-side representation of a service instance used for offering SOME/IP services.
+
+    This class manages the lifecycle of offering a service instance via
+    the Some/IP-SD mechanism and enables sending events to subscribed
+    clients.
+
+    Parameters
+    ----------
+    daemon : SomeIpDaemonClient
+        Daemon client used to communicate with the someipy daemon.
+    service : Service
+        Service configuration for this instance.
+    instance_id : int
+        Instance ID for this service instance.
+    endpoint_ip : str
+        IP address of the endpoint on which the service instance is reachable.
+    endpoint_port : int
+        Port of the endpoint on which the service instance is reachable.
+    ttl : int, optional
+        TTL used for Service Discovery offers. Default: 0.
+    cyclic_offer_delay_ms : int, optional
+        Delay between cyclic offers in milliseconds. Default: 2000.
+    """
 
     def __init__(
         self,
@@ -37,6 +60,25 @@ class ServerServiceInstance(ServerInstanceInterface):
         ttl: int = 0,  # TTL used for SD Offer entries
         cyclic_offer_delay_ms=2000,
     ):
+        """Initialize a ServerServiceInstance.
+
+        Parameters
+        ----------
+        daemon : SomeIpDaemonClient
+            Daemon client used to communicate with the someipy daemon.
+        service : Service
+            Service configuration for this instance.
+        instance_id : int
+            Instance ID for this service instance.
+        endpoint_ip : str
+            IP address of the endpoint on which the service instance is reachable.
+        endpoint_port : int
+            Port of the endpoint on which the service instance is reachable.
+        ttl : int, optional
+            TTL used for Service Discovery offers. Default: 0.
+        cyclic_offer_delay_ms : int, optional
+            Delay between cyclic offers in milliseconds. Default: 2000.
+        """
         self._daemon = daemon
         self._service = service
         self._instance_id = instance_id
@@ -48,6 +90,16 @@ class ServerServiceInstance(ServerInstanceInterface):
         self._daemon._server_service_instances.append(self)
 
     async def start_offer(self):
+        """Start offering the service instance via the service discovery offer entries.
+
+        This method gathers the current service methods and event groups
+        and invokes the daemon to advertise the service with the
+        configured endpoint and version information.
+
+        Returns
+        -------
+        None
+        """
         methods: List[Method] = self._service.methods.values()
         eventgroups: List[EventGroup] = self._service.eventgroups.values()
 
@@ -65,6 +117,14 @@ class ServerServiceInstance(ServerInstanceInterface):
         )
 
     async def stop_offer(self):
+        """Stop offering the service instance and send out a stop offer entry.
+
+        This stops advertising the service instance to clients via the daemon.
+
+        Returns
+        -------
+        None
+        """
         methods: List[Method] = self._service.methods.values()
         eventgroups: List[EventGroup] = self._service.eventgroups.values()
 
@@ -82,6 +142,31 @@ class ServerServiceInstance(ServerInstanceInterface):
         )
 
     def send_event(self, eventgroup_id: int, event_id: int, payload: bytes):
+        """Send an event to clients subscribed to the event.
+
+        This method validates the specified event group and event within the
+        service definition, encodes the payload in Base64, constructs a
+        UDS message and dispatches it through the daemon.
+
+        Parameters
+        ----------
+        eventgroup_id : int
+            ID of the event group the event belongs to.
+        event_id : int
+            ID of the event to send.
+        payload : bytes
+            Payload of the event to transmit to clients.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        ValueError
+            If event group ID or event ID is not found within the service.
+
+        """
         if not eventgroup_id in self._service.eventgroupids:
             raise ValueError(
                 f"Event group ID {eventgroup_id} not found in service 0x{self._service.id:04X}"
@@ -119,16 +204,44 @@ class ServerServiceInstance(ServerInstanceInterface):
 
     @property
     def service(self) -> Service:
+        """Service associated with this server service instance.
+
+        Returns
+        -------
+        Service
+            The service configuration that this instance exposes.
+        """
         return self._service
 
     @property
     def instance_id(self) -> int:
+        """Instance ID of this server service instance.
+
+        Returns
+        -------
+        int
+            The unique identifier for this service instance.
+        """
         return self._instance_id
 
     @property
     def endpoint_ip(self) -> str:
+        """IP address of the endpoint this instance offers services on.
+
+        Returns
+        -------
+        str
+            Endpoint IP address.
+        """
         return self._endpoint_ip
 
     @property
     def endpoint_port(self) -> int:
+        """Port of the endpoint this instance offers services on.
+
+        Returns
+        -------
+        int
+            Endpoint port number.
+        """
         return self._endpoint_port

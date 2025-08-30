@@ -18,6 +18,8 @@ from .return_codes import ReturnCode
 
 
 class MethodResult:
+    """Class representing the result of a method call."""
+
     message_type: MessageType
     return_code: ReturnCode
     payload: bytes

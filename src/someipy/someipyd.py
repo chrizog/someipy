@@ -1362,8 +1362,8 @@ class SomeipDaemon:
                 and requested_subscription.major_version == message["major_version"]
             ):
                 self.logger.debug(
-                    f"Found internal subscription for service {message['service_id']}, "
-                    f"instance {message['instance_id']}, eventgroup {message['eventgroup_id']}"
+                    f"Internal subscription for service {message['service_id']:04x}, "
+                    f"instance {message['instance_id']:04x}, eventgroup {message['eventgroup_id']:04x}"
                 )
 
                 event_msg = create_uds_message(

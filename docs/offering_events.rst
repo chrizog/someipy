@@ -72,7 +72,7 @@ The constructor of the ``ServerServiceInstance`` class requires several paramete
 - endpoint_ip: The IP address of the network interface on which the service is offered (127.0.0.1 in this example)
 - endpoint_port: The port on which the service is offered (3000 in this example)
 - ttl: The time-to-live for the service discovery entries (5 seconds in this example)
-- cyclic_offer_delay_ms: The period of the cylic offer service SD messages (2000 ms in this example)
+- cyclic_offer_delay_ms: The period of the cyclic offer service SD messages (2000 ms in this example)
 
 .. code-block:: python
 
@@ -115,7 +115,7 @@ Now that the service is offered, clients can subscribe to the eventgroup with ID
 Typical sending strategies for SOME/IP events are **cyclic updates** or **update on change**. Update on change means that an event is sent whenever the contained value changes. In a cyclic update, the event would be sent even if the contained data has not changed since the last publish.
 
 Step 6: Shutdown the Application
-----------------------------
+------------------------------------------------
 
 At the end of your application, make sure to stop offering the service instance and disconnect from the someipy daemon to ensure a clean shutdown of the application.
 

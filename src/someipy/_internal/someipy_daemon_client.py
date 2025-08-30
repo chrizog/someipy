@@ -45,6 +45,21 @@ _logger_name = "someipyd_client"
 
 
 async def connect_to_someipy_daemon(config: dict = None):
+    """Connect to the someipy daemon.
+
+    Parameters
+    ----------
+    config : dict, optional
+        Configuration dictionary. The following keys are supported:
+
+        - socket_path: Path to the Unix domain socket. Default is /tmp/someipyd.sock
+
+    Returns
+    -------
+    SomeIpDaemonClient
+        An instance of the SomeIpDaemonClient class.
+    """
+
     daemon_client = SomeIpDaemonClient(config)
     await daemon_client._connect_to_daemon()
     return daemon_client
@@ -264,7 +279,7 @@ class SomeIpDaemonClient:
                     method = service_instance.service.methods.get(method_id, None)
                     if method:
                         get_logger(_logger_name).debug(
-                            f"Calling method {method_id} on service {service_id}"
+                            f"Calling method handler for {method_id:04x} on service {service_id:04x}"
                         )
                         # Call the method handler, eventually call it in a separate task
                         # to avoid blocking the event loop

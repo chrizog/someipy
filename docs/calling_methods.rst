@@ -36,7 +36,7 @@ In this example, we will call a SOME/IP method that calculates the sum of two si
 Details on defining data types can be found :doc:`here <service_interface>`.
 
 Step 2: Connect to the someipy Daemon
-----------------------------------
+--------------------------------------
 
 The first step is to connect to the someipy daemon. The daemon is a separate process communicating with the application using someipy via a Unix Domain Socket (UDS). The daemon is responsible for handling all communication with the SOME/IP network, including service discovery and message sending/receiving.
 
@@ -125,7 +125,7 @@ To avoid the ``RuntimeError`` it is possible to test whether the service was alr
             print(f"Error during method call: {e}")
 
 Step 6: Shutdown the Application
-----------------------------
+--------------------------------
 
 At the end of your application, make sure to stop offering the service instance and disconnect from the someipy daemon to ensure a clean shutdown of the application.
 
