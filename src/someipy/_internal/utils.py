@@ -43,6 +43,7 @@ def create_udp_socket(ip_address: str, port: int) -> socket.socket:
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.bind((ip_address, port))
     return sock
 
@@ -85,6 +86,38 @@ def create_rcv_multicast_socket(
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
     return sock
 
+def create_rcv_broadcast_socket(
+    ip_address: str, port: int, interface_address
+) -> socket.socket:
+    """
+    Create a datagram protocol based socket for multicast and bind the socket to the passed multicast address.
+
+    The options "SO_REUSEADDR" and "SO_BROADCAST" will be set on the socket.
+
+    Parameters
+    ----------
+    ip_address : str
+        The multicast IP address to which the socket is bound
+    port : int
+        The port to which the socket is bound
+    interface_address : str
+        The address of the local interface
+
+    Returns
+    -------
+    socket.socket
+        The newly created socket
+
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    os_type = platform.system()
+    if os_type == "Windows":
+        sock.bind(("", port))
+    else:
+        sock.bind((ip_address, port))
+
+    return sock
 
 EndpointType = Tuple[ipaddress.IPv4Address, int]
 

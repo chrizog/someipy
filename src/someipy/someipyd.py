@@ -84,6 +84,7 @@ from someipy._internal.uds_messages import (
 from someipy._internal.utils import (
     DatagramAdapter,
     create_rcv_multicast_socket,
+    create_rcv_broadcast_socket,
     create_udp_socket,
 )
 from someipy._internal.offer_service_storage import OfferServiceStorage, ServiceToOffer
@@ -1770,9 +1771,14 @@ class SomeipDaemon:
         pass
 
     async def start_sd_listening(self):
-        self._sd_socket_mcast = create_rcv_multicast_socket(
-            self.sd_address, self.sd_port, DEFAULT_INTERFACE_IP
-        )
+        if self.sd_address.startswith("224"):
+            self._sd_socket_mcast = create_rcv_multicast_socket(
+                self.sd_address, self.sd_port, self.interface
+            )
+        else:
+            self._sd_socket_mcast = create_rcv_broadcast_socket(
+                self.sd_address, self.sd_port, self.interface
+            )
 
         loop = asyncio.get_running_loop()
         self._mcast_transport, _ = await loop.create_datagram_endpoint(
