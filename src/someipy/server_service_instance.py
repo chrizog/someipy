@@ -16,8 +16,8 @@
 import base64
 from typing import List
 from someipy._internal.daemon_client_abcs import ServerInstanceInterface
-from someipy._internal.someipy_daemon_client import SomeIpDaemonClient
-from someipy._internal.uds_messages import create_uds_message, SendEventRequest
+from someipy._internal._daemon.someipy_daemon_client import SomeIpDaemonClient
+from someipy._internal._daemon.uds_messages import create_uds_message, SendEventRequest
 from someipy.service import EventGroup, Method, Service
 
 from someipy._internal.logging import get_logger

@@ -17,6 +17,7 @@ import asyncio
 import base64
 import ipaddress
 import json
+import platform
 import struct
 from typing import Dict, List, TypedDict, cast
 
@@ -27,7 +28,7 @@ from someipy._internal.daemon_client_abcs import (
 from someipy._internal.logging import get_logger
 from someipy._internal.someip_sd_header import SdService
 from someipy._internal.transport_layer_protocol import TransportLayerProtocol
-from someipy._internal.uds_messages import (
+from someipy._internal._daemon.uds_messages import (
     BaseMessage,
     InboundCallMethodRequest,
     InboundCallMethodResponse,
@@ -74,10 +75,14 @@ class SomeIpDaemonClient:
     def __init__(self, config: dict = None):
         self._config = config
 
-        if self._config == None or "socket_path" not in self._config:
+        if self._config is None:
+            self._use_tcp = platform.system() != "Linux"
+            self._tcp_port = 30500
             self._socket_path = "/tmp/someipyd.sock"
         else:
-            self._socket_path = self._config["socket_path"]
+            self._socket_path = self._config.get("socket_path", "/tmp/someipyd.sock")
+            self._use_tcp = self._config.get("use_tcp", platform.system() != "Linux")
+            self._tcp_port = self._config.get("tcp_port", 30500)
 
         self._rx_message_queue: asyncio.Queue[DaemonMessage] = asyncio.Queue()
         self._rx_task: asyncio.Task = None
@@ -148,15 +153,21 @@ class SomeIpDaemonClient:
                 self._clear_rx_queue()
                 self._rx_message_queue = asyncio.Queue()
 
-                self.reader, self.writer = await asyncio.open_unix_connection(
-                    self._socket_path
-                )
+                if self._use_tcp:
+                    self.reader, self.writer = await asyncio.open_connection(
+                        "127.0.0.1", self._tcp_port
+                    )
+                else:
+                    self.reader, self.writer = await asyncio.open_unix_connection(
+                        self._socket_path
+                    )
                 success = True
                 break
 
             except Exception as e:
+                connection = "TCP" if self._use_tcp else "Unix Domain Socket"
                 get_logger(_logger_name).error(
-                    f"Failed to connect to daemon: {e}. Retries left: {num_retries}"
+                    f"Failed to connect to daemon via {connection}: {e}. Retries left: {num_retries}"
                 )
                 await asyncio.sleep(1.0)
 

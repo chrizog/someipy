@@ -22,8 +22,8 @@ from someipy import Service
 from someipy._internal.daemon_client_abcs import ClientInstanceInterface
 from someipy._internal.method_result import MethodResult
 from someipy._internal.someip_sd_header import SdService
-from someipy._internal.someipy_daemon_client import SomeIpDaemonClient
-from someipy._internal.uds_messages import (
+from someipy._internal._daemon.someipy_daemon_client import SomeIpDaemonClient
+from someipy._internal._daemon.uds_messages import (
     OutboundCallMethodRequest,
     OutboundCallMethodResponse,
     ReceivedEvent,

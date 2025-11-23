@@ -22,6 +22,7 @@ import functools
 import json
 import logging
 import os
+import platform
 import struct
 import sys
 import ipaddress
@@ -66,7 +67,7 @@ from someipy._internal.someip_sd_header import (
     SomeIpSdHeader,
 )
 from someipy._internal.subscribers import EventGroupSubscriber, Subscribers
-from someipy._internal.uds_messages import (
+from someipy._internal._daemon.uds_messages import (
     InboundCallMethodRequest,
     InboundCallMethodResponse,
     FindServiceRequest,
@@ -96,6 +97,7 @@ DEFAULT_CONFIG_FILE = "someipyd.json"
 DEFAULT_SD_ADDRESS = "224.224.224.245"
 DEFAULT_INTERFACE_IP = "127.0.0.2"
 DEFAULT_SD_PORT = 30490
+DEFAULT_TCP_PORT = 30500
 
 
 class Subscription:
@@ -285,6 +287,8 @@ class SomeipDaemon:
         self.interface = self.config.get("interface", DEFAULT_INTERFACE_IP)
         log_level = self.config.get("log_level", "DEBUG")
         self.log_path = log_path if log_path else self.config.get("log_path")
+        self.use_tcp = self.config.get("use_tcp", platform.system() != "Linux")
+        self.tcp_port = self.config.get("tcp_port", DEFAULT_TCP_PORT)
 
         self.logger = self._configure_logging(
             log_level=log_level, log_path=self.log_path
@@ -298,6 +302,8 @@ class SomeipDaemon:
             f"Interface: {self.interface}\n"
             f"Loglevel: {log_level}\n"
             f"Log path: {self.log_path if self.log_path else 'Console'}\n"
+            f"Use TCP: {self.use_tcp}\n"
+            f"TCP Port: {self.tcp_port}\n"
         )
 
         log_level_mapping = {
@@ -1427,27 +1433,36 @@ class SomeipDaemon:
                 await writer.wait_closed()
 
     async def start_server(self):
-        if os.path.exists(self.socket_path):
-            os.unlink(self.socket_path)
 
-        server = await asyncio.start_unix_server(
-            self.handle_client, path=self.socket_path
-        )
-        self.logger.info(f"Unix domain socket server started at {self.socket_path}")
+        if not self.use_tcp:
+            if os.path.exists(self.socket_path):
+                os.unlink(self.socket_path)
+
+            server = await asyncio.start_unix_server(
+                self.handle_client, path=self.socket_path
+            )
+            self.logger.info(f"Unix domain socket server started at {self.socket_path}")
+        else:
+            server = await asyncio.start_server(
+                self.handle_client,
+                host="127.0.0.1",
+                port=self.tcp_port,
+                reuse_port=True,
+            )
 
         try:
             await self.start_sd_listening()
             async with server:
                 await server.serve_forever()
         except asyncio.CancelledError:
-            self.logger.info("UDS server cancelled.")
-            pass
+            self.logger.info(f"{"TCP" if self.use_tcp else "UDS"} server cancelled.")
         finally:
             if self._mcast_transport:
                 self._mcast_transport.close()
             if self._ucast_transport:
                 self._ucast_transport.close()
-            self.logger.info("UDS server stopped.")
+
+            self.logger.info(f"{'TCP' if self.use_tcp else 'UDS'} server stopped.")
 
     def _timeout_of_offered_service(self, offered_service: SdService):
         self.logger.info(

@@ -6,4 +6,6 @@ from ._internal.someip_message import SomeIpMessage  # noqa: F401
 from ._internal.method_result import MethodResult  # noqa: F401
 from ._internal.return_codes import ReturnCode  # noqa: F401
 from ._internal.message_types import MessageType  # noqa: F401
-from ._internal.someipy_daemon_client import connect_to_someipy_daemon  # noqa: F401
+from ._internal._daemon.someipy_daemon_client import (
+    connect_to_someipy_daemon,
+)  # noqa: F401

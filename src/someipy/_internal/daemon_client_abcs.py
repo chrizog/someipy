@@ -16,7 +16,10 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
 
-from someipy._internal.uds_messages import InboundCallMethodResponse, ReceivedEvent
+from someipy._internal._daemon.uds_messages import (
+    InboundCallMethodResponse,
+    ReceivedEvent,
+)
 from someipy.service import Service
 
 
