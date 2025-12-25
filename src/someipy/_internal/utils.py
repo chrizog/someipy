@@ -86,6 +86,7 @@ def create_rcv_multicast_socket(
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
     return sock
 
+
 def create_rcv_broadcast_socket(
     ip_address: str, port: int, interface_address
 ) -> socket.socket:
@@ -118,6 +119,7 @@ def create_rcv_broadcast_socket(
         sock.bind((ip_address, port))
 
     return sock
+
 
 EndpointType = Tuple[ipaddress.IPv4Address, int]
 
@@ -154,7 +156,7 @@ class DatagramAdapter(asyncio.DatagramProtocol):
 
 
 def set_bit_at_position(number: int, position: int, value: bool) -> int:
-    """Set the bit at the specified position to the given boolean value."""
+    """Set the bit at the specified position (0 is the least significant bit) to the given boolean value."""
     if value:
         # Set the bit to 1
         return number | (1 << position)

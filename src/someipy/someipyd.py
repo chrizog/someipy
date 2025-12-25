@@ -22,13 +22,27 @@ import functools
 import json
 import logging
 import os
-import platform
 import struct
 import sys
 import ipaddress
 import time
 from typing import Any, Dict, List, Set, Tuple, Union
 
+from someipy._internal._daemon.daemon_server_client import (
+    ClientMessageEventArgs,
+    DaemonServerClient,
+)
+from someipy._internal._sd.deserialization.sd_deserialization import (
+    deserialize_sd_message,
+    is_sd_message,
+)
+from someipy._internal._sd.deserialization.sd_serialization import serialize_sd_message
+from someipy._internal._sd.entries.subscribe_eventgroup_entry import (
+    SubscribeEventGroupEntry,
+)
+from someipy._internal._sd.options.endpoint import IpV4EndpointOption
+from someipy._internal._sd.sd_message import SdMessage
+from someipy._internal._sd.service_instance import ServiceInstance
 from someipy._internal.message_types import MessageType
 from someipy._internal.someip_endpoint import (
     SomeipEndpoint,
@@ -51,13 +65,11 @@ from someipy._internal.someip_sd_builder import (
     build_subscribe_eventgroup_sd_header,
 )
 from someipy._internal.someip_sd_extractors import (
-    extract_offered_services,
     extract_subscribe_ack_eventgroup_entries,
     extract_subscribe_entries,
     extract_subscribe_nack_eventgroup_entries,
 )
 from someipy._internal.someip_sd_header import (
-    SdEntry,
     SdEntryType,
     SdEventGroupEntry,
     SdService,
@@ -90,6 +102,10 @@ from someipy._internal.utils import (
 )
 from someipy._internal.offer_service_storage import OfferServiceStorage, ServiceToOffer
 from someipy.service import Event, Method, EventGroup
+from someipy._internal._daemon.daemon_server import (
+    ClientConnectedEventArgs,
+    DaemonServer,
+)
 
 
 DEFAULT_SOCKET_PATH = "/tmp/someipyd.sock"
@@ -279,42 +295,18 @@ class MethodCall:
 
 class SomeipDaemon:
 
-    def __init__(self, config_file=None, log_path=None):
-        self.config = self._load_config(config_file)
-        self.socket_path = self.config.get("socket_path", DEFAULT_SOCKET_PATH)
+    def __init__(
+        self, server: DaemonServer, config: dict = None, logger: logging.Logger = None
+    ):
+
+        self.config = config
+        self.logger = logger
+
         self.sd_address = self.config.get("sd_address", DEFAULT_SD_ADDRESS)
         self.sd_port = self.config.get("sd_port", DEFAULT_SD_PORT)
         self.interface = self.config.get("interface", DEFAULT_INTERFACE_IP)
-        log_level = self.config.get("log_level", "DEBUG")
-        self.log_path = log_path if log_path else self.config.get("log_path")
-        self.use_tcp = self.config.get("use_tcp", platform.system() != "Linux")
-        self.tcp_port = self.config.get("tcp_port", DEFAULT_TCP_PORT)
 
-        self.logger = self._configure_logging(
-            log_level=log_level, log_path=self.log_path
-        )
-
-        self.logger.info(
-            f"Starting SOME/IP Daemon with config:\n"
-            f"Socket path: {self.socket_path}\n"
-            f"SD address: {self.sd_address}\n"
-            f"SD port: {self.sd_port}\n"
-            f"Interface: {self.interface}\n"
-            f"Loglevel: {log_level}\n"
-            f"Log path: {self.log_path if self.log_path else 'Console'}\n"
-            f"Use TCP: {self.use_tcp}\n"
-            f"TCP Port: {self.tcp_port}\n"
-        )
-
-        log_level_mapping = {
-            "DEBUG": logging.DEBUG,
-            "ERROR": logging.ERROR,
-            "INFO": logging.INFO,
-            "FATAL": logging.FATAL,
-        }
-
-        if log_level in log_level_mapping:
-            self.logger.setLevel(log_level_mapping[log_level])
+        self._server = server
 
         self._sd_socket_mcast = None
         self._sd_socket_ucast = None
@@ -322,7 +314,7 @@ class SomeipDaemon:
         self._ucast_transport = None
 
         # Services offered by other ECUs
-        self._found_services: List[SdServiceWithTimestamp] = []
+        self._found_services: List[ServiceInstance] = []
 
         # Services offered by this daemon
         self._services_to_offer = OfferServiceStorage()
@@ -343,57 +335,58 @@ class SomeipDaemon:
         # Qeueues and tasks stored by id of asyncio.StreamWriter
         self._tx_queues: Dict[int, asyncio.Queue] = {}
         self._tx_tasks: Dict[int, asyncio.Task] = {}
-        self._rx_queues: Dict[int, asyncio.Queue] = {}
 
         self._someip_server_endpoints = SomeipEndpointStorage()
         self._someip_client_endpoints = SomeipEndpointStorage()
 
-        self._ttl_task = asyncio.create_task(self._check_services_ttl_task())
+        self._ttl_task: asyncio.Task = None
 
         self._issued_method_calls: Dict[MethodCall, int] = {}
 
-    def _configure_logging(self, log_level=logging.DEBUG, log_path=None):
-        logger = logging.getLogger(f"someipyd")
-        logger.setLevel(log_level)
+    async def new_client_connected(
+        self, sender: object, event_args: ClientConnectedEventArgs
+    ):
+        self.logger.info(f"New client connected: {event_args.client.id}")
 
-        # Remove any existing handlers to prevent duplicate logs
-        if logger.hasHandlers():
-            logger.handlers.clear()
-
-        formatter = logging.Formatter(
-            "%(asctime)s.%(msecs)03d %(name)s [%(levelname)s]: %(message)s",
-            datefmt="%Y-%m-%d,%H:%M:%S",
+        # Create the tx_queue and tx_task for the client using the writers id
+        self._tx_queues[event_args.client.id] = asyncio.Queue()
+        self._tx_tasks[event_args.client.id] = asyncio.create_task(
+            self.tx_task(event_args.client)
         )
 
-        if log_path:
-            file_handler = logging.FileHandler(log_path)
-            file_handler.setLevel(log_level)
-            file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
-        else:
-            console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setLevel(log_level)
-            console_handler.setFormatter(formatter)
-            logger.addHandler(console_handler)
-        return logger
+        event_args.client.message_received += self.handle_client_message
 
-    def _load_config(self, config_file):
-        if config_file and os.path.exists(config_file):
+    async def client_disconnected(
+        self, sender: object, event_args: ClientConnectedEventArgs
+    ):
+        self.logger.info(f"Client disconnected: {event_args.client.id}")
+
+        writer_id = event_args.client.id
+        # Remove all subscriptions for the client
+        self._requested_subscriptions.remove_client(writer_id)
+
+        # Clean up the transmission task for the client. This will also clean up the transmission queue
+        tx_task = self._tx_tasks.get(writer_id)
+        if tx_task and not tx_task.cancelled():
+            tx_task.cancel()
             try:
-                with open(config_file, "r") as f:
-                    return json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError) as e:
-                self.logger.error(f"Error loading config file: {e}. Using defaults.")
-                return {}
-        elif os.path.exists(DEFAULT_CONFIG_FILE):
-            try:
-                with open(DEFAULT_CONFIG_FILE, "r") as f:
-                    return json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError) as e:
-                self.logger.error(f"Error loading config file: {e}. Using defaults.")
-                return {}
-        else:
-            return {}
+                await tx_task
+            except asyncio.CancelledError:
+                pass
+
+        self._services_to_offer.remove_client(writer_id)
+        self._cleanup_unused_timers()
+
+        client_endpoints = self._someip_server_endpoints.get_endpoints(writer_id)
+        if client_endpoints is not None:
+            for endpoint in client_endpoints:
+                self.logger.debug(
+                    f"Closing endpoint {endpoint.dst_ip()}:{endpoint.dst_port()} for client {writer_id}"
+                )
+                endpoint.shutdown()
+                self._someip_server_endpoints.remove_endpoint(writer_id, endpoint)
+
+        self.logger.debug(f"Client disconnected")
 
     async def _create_server_endpoint(
         self, ip: str, port: int, protocol: TransportLayerProtocol
@@ -672,9 +665,8 @@ class SomeipDaemon:
             if not endpoint_used:
                 endpoints_to_close.append(endpoint)
 
-    async def tx_task(self, writer: asyncio.StreamWriter):
-        tx_queue = self._tx_queues[id(writer)]
-
+    async def tx_task(self, client: DaemonServerClient):
+        tx_queue = self._tx_queues[client.id]
         try:
             while True:
                 try:
@@ -683,8 +675,8 @@ class SomeipDaemon:
 
                     try:
                         # Send the data
-                        writer.write(data)
-                        await writer.drain()
+                        client.writer.write(data)
+                        await client.writer.drain()
                         tx_queue.task_done()
                     except ConnectionError as e:
                         self.logger.error(f"Error sending data in tx task: {e}")
@@ -695,115 +687,24 @@ class SomeipDaemon:
                     continue
 
         except asyncio.CancelledError:
-            self.logger.debug(f"TX task for writer {id(writer)} cancelled")
+            self.logger.debug(f"TX task for writer {client.id} cancelled")
             # Perform cleanup here
             try:
-                writer.close()
-                await writer.wait_closed()
+                client.writer.close()
+                await client.writer.wait_closed()
             except Exception as e:
                 self.logger.error(f"Error closing writer: {e}")
         finally:
             # Always clean up the queue
-            self._tx_queues.pop(id(writer), None)
-            self.logger.debug(f"TX task for writer {id(writer)} finished")
+            self._tx_queues.pop(client.id, None)
+            self.logger.debug(f"TX task for writer {client.id} finished")
 
-    async def handle_client(self, reader, writer):
-        writer_id = id(writer)
-        self.logger.info(f"New client connected: {writer_id}")
-
-        # Create the tx_queue and tx_task for the client using the writers id
-        self._tx_queues[writer_id] = asyncio.Queue()
-        self._tx_tasks[writer_id] = asyncio.create_task(self.tx_task(writer))
-        self._rx_queues[writer_id] = asyncio.Queue()
-
-        try:
-            wait_for_header = True
-            header_buffer = b""
-            message_buffer = b""
-            message_length = 0
-
-            while True:
-                if wait_for_header:
-                    data = await reader.read(256 - len(header_buffer))
-                    if not data:
-                        self.logger.debug(f"Data is none. Client disconnected.")
-                        break  # Client disconnected
-
-                    header_buffer += data
-
-                    if len(header_buffer) == 256:
-                        try:
-                            message_length = struct.unpack("<I", header_buffer[:4])[
-                                0
-                            ]  # read the first 4 bytes as unsigned int little endian.
-                        except struct.error:
-                            self.logger.error(f"Client sent invalid message length.")
-                            break
-
-                        wait_for_header = False
-                        message_buffer = b""  # reset the message buffer
-                    elif len(header_buffer) > 256:
-                        self.logger.error(f"Client sent too much header data.")
-                        break
-
-                else:
-                    data = await reader.read(message_length - len(message_buffer))
-                    if not data:
-                        self.logger.debug(f"Data is none. Client disconnected.")
-                        break  # Client disconnected
-
-                    message_buffer += data
-
-                    if len(message_buffer) == message_length:
-
-                        self.logger.debug(f"Client sent message: {message_buffer}")
-                        json_message = json.loads(message_buffer.decode("utf-8"))
-                        await self.handle_client_message(json_message, writer)
-
-                        wait_for_header = True
-                        header_buffer = b""  # reset header buffer
-                        message_buffer = b""  # reset message buffer
-                        message_length = 0  # reset message length
-                    elif len(message_buffer) > message_length:
-                        self.logger.error(f"Client sent too much message data.")
-                        break
-        except ConnectionResetError:
-            self.logger.error(f"Client disconnected abruptly.")
-        except Exception as e:
-            self.logger.error(f"Error handling client: {e}")
-        finally:
-
-            # Remove all subscriptions for the client
-            self._requested_subscriptions.remove_client(writer_id)
-
-            # Clean up the transmission task for the client. This will also clean up the transmission queue
-            tx_task = self._tx_tasks.get(writer_id)
-            if tx_task and not tx_task.cancelled():
-                tx_task.cancel()
-                try:
-                    await tx_task
-                except asyncio.CancelledError:
-                    pass
-
-            self._rx_queues.pop(writer_id, None)
-
-            self._services_to_offer.remove_client(writer_id)
-            self._cleanup_unused_timers()
-
-            client_endpoints = self._someip_server_endpoints.get_endpoints(writer_id)
-            if client_endpoints is not None:
-                for endpoint in client_endpoints:
-                    self.logger.debug(
-                        f"Closing endpoint {endpoint.dst_ip()}:{endpoint.dst_port()} for client {writer_id}"
-                    )
-                    endpoint.shutdown()
-                    self._someip_server_endpoints.remove_endpoint(writer_id, endpoint)
-
-            self.logger.debug(f"Client disconnected")
-
-    async def handle_client_message(self, message: dict, writer: asyncio.StreamWriter):
-        writer_id = id(writer)
-        message_type = message.get("type")
+    async def handle_client_message(
+        self, sender: object, event_args: ClientMessageEventArgs
+    ):
+        writer_id = id(event_args.client.id)
+        message = event_args.message
+        message_type = event_args.message.get("type")
         self.logger.debug(f"Received message type: {message_type}")
 
         message_handlers = {
@@ -1433,36 +1334,20 @@ class SomeipDaemon:
                 await writer.wait_closed()
 
     async def start_server(self):
-
-        if not self.use_tcp:
-            if os.path.exists(self.socket_path):
-                os.unlink(self.socket_path)
-
-            server = await asyncio.start_unix_server(
-                self.handle_client, path=self.socket_path
-            )
-            self.logger.info(f"Unix domain socket server started at {self.socket_path}")
-        else:
-            server = await asyncio.start_server(
-                self.handle_client,
-                host="127.0.0.1",
-                port=self.tcp_port,
-                reuse_port=True,
-            )
-
         try:
+            if self._ttl_task is None or self._ttl_task.done():
+                self._ttl_task = asyncio.create_task(self._check_services_ttl_task())
             await self.start_sd_listening()
-            async with server:
-                await server.serve_forever()
+            await self._server.serve_forever()
         except asyncio.CancelledError:
-            self.logger.info(f"{"TCP" if self.use_tcp else "UDS"} server cancelled.")
+            self.logger.info(f"Server cancelled.")
         finally:
             if self._mcast_transport:
                 self._mcast_transport.close()
             if self._ucast_transport:
                 self._ucast_transport.close()
 
-            self.logger.info(f"{'TCP' if self.use_tcp else 'UDS'} server stopped.")
+            self.logger.info(f"Server stopped.")
 
     def _timeout_of_offered_service(self, offered_service: SdService):
         self.logger.info(
@@ -1500,17 +1385,15 @@ class SomeipDaemon:
 
         return found_message
 
-    def _handle_offered_service(self, offered_service: SdService2):
+    def _handle_offered_service(self, offered_service: ServiceInstance):
         self.logger.info(f"Received offered service: {offered_service}")
 
-        new_service = SdServiceWithTimestamp(offered_service, time.time())
-
-        if new_service not in self._found_services:
-            self._found_services.append(new_service)
+        if offered_service not in self._found_services:
+            self._found_services.append(offered_service)
         else:
             # Update the timestamp if the service is already in the list
-            index = self._found_services.index(new_service)
-            self._found_services[index].timestamp = time.time()
+            index = self._found_services.index(offered_service)
+            self._found_services[index].timestamp = offered_service.timestamp
 
         # Check if there is a requested subscription for this service
         for requested_subscription in self._requested_subscriptions.has_subscriptions(
@@ -1556,21 +1439,34 @@ class SomeipDaemon:
                 reboot_flag,
             ) = self._unicast_session_handler.update_session()
 
-            # Improvement: Pack all entries into a single SD message
-            subscribe_sd_header = build_subscribe_eventgroup_sd_header(
+            # Build subscribe message
+            sd_message = SdMessage()
+            sd_message.session_id = session_id
+
+            options = []
+            for protocol in requested_protocols:
+                options.append(
+                    IpV4EndpointOption(
+                        address=ipaddress.IPv4Address(
+                            requested_subscription[0].client_endpoint_ip
+                        ),
+                        protocol=protocol,
+                        port=requested_subscription[0].client_endpoint_port,
+                    )
+                )
+
+            entry = SubscribeEventGroupEntry(
                 service_id=offered_service.service_id,
                 instance_id=offered_service.instance_id,
                 major_version=offered_service.major_version,
-                ttl=int(requested_subscription[0].ttl),
-                event_group_id=requested_subscription[0].eventgroup.id,
-                session_id=session_id,
-                reboot_flag=reboot_flag,
-                endpoint=(
-                    ipaddress.IPv4Address(requested_subscription[0].client_endpoint_ip),
-                    requested_subscription[0].client_endpoint_port,
-                ),
-                protocols=requested_protocols,
+                minor_version=offered_service.minor_version,
+                ttl=requested_subscription[0].ttl,
+                eventgroup_id=requested_subscription[0].eventgroup.id,
+                counter=0,
+                ip_v4_endpoints=options,
+                ip_v6_endpoints=[],
             )
+            sd_message.entries.append(entry)
 
             pending_subscription = Subscription(
                 service_id=offered_service.service_id,
@@ -1588,7 +1484,7 @@ class SomeipDaemon:
 
             if self._ucast_transport:
                 self._ucast_transport.sendto(
-                    subscribe_sd_header.to_buffer(),
+                    serialize_sd_message(sd_message),
                     (str(offered_service.endpoint[0]), self.sd_port),
                 )
 
@@ -1734,14 +1630,22 @@ class SomeipDaemon:
         if addr[0] == self.interface and addr[1] == self.sd_port:
             return
 
-        someip_header = SomeIpHeader.from_buffer(data)
-        if not someip_header.is_sd_header():
+        if is_sd_message(data) is False:
             return
 
-        someip_sd_header = SomeIpSdHeader.from_buffer(data)
+        sd_message = deserialize_sd_message(data)
+        sd_message.timestamp = time.time()
 
-        for offered_service in extract_offered_services(someip_sd_header):
-            self._handle_offered_service(offered_service)
+        # someip_header = SomeIpHeader.from_buffer(data)
+        # if not someip_header.is_sd_header():
+        #    return
+
+        for offer_service_entry in [
+            o for o in sd_message.entries if o.entry_type == SdEntryType.OFFER_SERVICE
+        ]:
+            self._handle_offered_service(offer_service_entry, sd_message.timestamp)
+
+        someip_sd_header = SomeIpSdHeader.from_buffer(data)
 
         for subscription in extract_subscribe_entries(someip_sd_header):
             self._handle_subscription(subscription)
@@ -1816,13 +1720,102 @@ class SomeipDaemon:
         )
 
 
+def _configure_logging(log_level=logging.DEBUG, log_path=None) -> logging.Logger:
+    logger = logging.getLogger(f"someipyd")
+    logger.setLevel(log_level)
+
+    # Remove any existing handlers to prevent duplicate logs
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    formatter = logging.Formatter(
+        "%(asctime)s.%(msecs)03d %(name)s [%(levelname)s]: %(message)s",
+        datefmt="%Y-%m-%d,%H:%M:%S",
+    )
+
+    if log_path:
+        file_handler = logging.FileHandler(log_path)
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    else:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(log_level)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+    return logger
+
+
+def _load_config(config_file: str) -> dict:
+    if config_file and os.path.exists(config_file):
+        try:
+            with open(config_file, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Error loading config file: {e}. Using defaults.")
+            return {}
+    elif os.path.exists(DEFAULT_CONFIG_FILE):
+        try:
+            with open(DEFAULT_CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Error loading config file: {e}. Using defaults.")
+            return {}
+    else:
+        return {}
+
+
 async def async_main():
     parser = argparse.ArgumentParser(description="SOME/IP Daemon")
     parser.add_argument("--config", help="Path to configuration file")
     parser.add_argument("--log-path", help="Path to log file")
     args = parser.parse_args()
 
-    daemon = SomeipDaemon(args.config, args.log_path)
+    # Load configuration
+    config = _load_config(args.config)
+
+    # Logging
+    log_path = args.log_path if args.log_path else config.get("log_path", None)
+    log_level = config.get("log_level", "INFO")
+
+    log_level_mapping = {
+        "DEBUG": logging.DEBUG,
+        "ERROR": logging.ERROR,
+        "INFO": logging.INFO,
+        "FATAL": logging.FATAL,
+    }
+
+    if log_level in log_level_mapping:
+        log_level = log_level_mapping[log_level]
+
+    logger = _configure_logging(log_level=log_level, log_path=log_path)
+
+    logger.info(
+        f"Starting SOME/IP Daemon with config:\n"
+        f"Socket path: {config.get('socket_path', DEFAULT_SOCKET_PATH)}\n"
+        f"SD address: {config.get('sd_address', DEFAULT_SD_ADDRESS)}\n"
+        f"SD port: {config.get('sd_port', DEFAULT_SD_PORT)}\n"
+        f"Interface: {config.get('interface', DEFAULT_INTERFACE_IP)}\n"
+        f"Loglevel: {log_level}\n"
+        f"Log path: {log_path if log_path else 'Console'}\n"
+        f"Use TCP: {config.get('use_tcp', False)}\n"
+        f"TCP Port: {config.get('tcp_port', None)}\n"
+    )
+
+    daemon_server = DaemonServer(logger)
+
+    daemon = SomeipDaemon(daemon_server, config, logger)
+
+    daemon_server.client_connected += daemon.new_client_connected
+    daemon_server.client_disconnected += daemon.client_disconnected
+
+    await daemon_server.start(
+        use_uds=config.get("use_uds", True),
+        socket_path=config.get("socket_path", DEFAULT_SOCKET_PATH),
+        tcp_port=config.get("tcp_port", None),
+        host=config.get("host", "127.0.0.1"),
+    )
+
     await daemon.start_server()
 
 

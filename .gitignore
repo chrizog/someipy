@@ -10,3 +10,5 @@ integration_tests/build
 integration_tests/install
 
 build/
+
+.coverage
