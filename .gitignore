@@ -12,3 +12,6 @@ integration_tests/install
 build/
 
 .coverage
+htmlcov/
+*.pdf
+*.bash

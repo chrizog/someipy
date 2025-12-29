@@ -20,7 +20,7 @@ import ipaddress
 import socket
 import struct
 
-from requests import options
+
 from someipy._internal._sd.entries.find_service_entry import FindServiceEntry
 from someipy._internal._sd.entries.offer_service_entry import OfferServiceEntry
 from someipy._internal._sd.entries.stop_offer_service_entry import StopOfferServiceEntry

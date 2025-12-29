@@ -28,15 +28,19 @@ import ipaddress
 import time
 from typing import Any, Dict, List, Set, Tuple, Union
 
+from someipy._internal._common.endpoint import Endpoint
 from someipy._internal._daemon.daemon_server_client import (
     ClientMessageEventArgs,
     DaemonServerClient,
 )
+from someipy._internal._daemon.subscription import Subscription
+from someipy._internal._daemon.subscription_storage import SubscriptionStorage
 from someipy._internal._sd.deserialization.sd_deserialization import (
     deserialize_sd_message,
     is_sd_message,
 )
 from someipy._internal._sd.deserialization.sd_serialization import serialize_sd_message
+from someipy._internal._sd.entries.offer_service_entry import OfferServiceEntry
 from someipy._internal._sd.entries.subscribe_eventgroup_entry import (
     SubscribeEventGroupEntry,
 )
@@ -50,6 +54,7 @@ from someipy._internal.someip_endpoint import (
     TCPSomeipEndpoint,
     UDPSomeipEndpoint,
 )
+from someipy._internal.someip_endpoint_factory import SomeipEndpointFactory
 from someipy._internal.someip_endpoint_storage import SomeipEndpointStorage
 from someipy._internal.someip_message import SomeIpMessage
 from someipy._internal.tcp_client_manager import TcpClientManager, TcpClientProtocol
@@ -58,11 +63,9 @@ from someipy._internal.session_handler import SessionHandler
 from someipy._internal.simple_timer import SimplePeriodicTimer
 from someipy._internal.someip_header import SomeIpHeader
 from someipy._internal.someip_sd_builder import (
-    build_offer_service_sd_header,
     build_stop_offer_service_sd_header,
     build_subscribe_eventgroup_ack_entry,
     build_subscribe_eventgroup_ack_sd_header,
-    build_subscribe_eventgroup_sd_header,
 )
 from someipy._internal.someip_sd_extractors import (
     extract_subscribe_ack_eventgroup_entries,
@@ -116,161 +119,6 @@ DEFAULT_SD_PORT = 30490
 DEFAULT_TCP_PORT = 30500
 
 
-class Subscription:
-    def __init__(
-        self,
-        service_id: int,
-        instance_id: int,
-        major_version: int,
-        eventgroup: EventGroup,
-        ttl_seconds: int,
-        client_endpoint_ip: str,
-        client_endpoint_port: int,
-        server_endpoint_ip: str,
-        server_endpoint_port: int,
-        timestamp: float = time.time(),
-    ):
-        self.service_id = service_id
-        self.instance_id = instance_id
-        self.major_version = major_version
-        self.eventgroup = eventgroup
-        self.ttl_seconds = ttl_seconds
-
-        self.client_endpoint_ip = client_endpoint_ip
-        self.client_endpoint_port = client_endpoint_port
-        self.server_endpoint_ip = server_endpoint_ip
-        self.server_endpoint_port = server_endpoint_port
-        self.timestamp = timestamp
-
-    def __eq__(self, value: "Subscription") -> bool:
-        return (
-            self.service_id == value.service_id
-            and self.instance_id == value.instance_id
-            and self.major_version == value.major_version
-            and self.eventgroup == value.eventgroup
-            and self.client_endpoint_ip == value.client_endpoint_ip
-            and self.client_endpoint_port == value.client_endpoint_port
-            and self.server_endpoint_ip == value.server_endpoint_ip
-            and self.server_endpoint_port == value.server_endpoint_port
-        )
-
-    def __hash__(self) -> int:
-        return hash(
-            (
-                self.service_id,
-                self.instance_id,
-                self.major_version,
-                self.eventgroup,
-                self.client_endpoint_ip,
-                self.client_endpoint_port,
-                self.server_endpoint_ip,
-                self.server_endpoint_port,
-            )
-        )
-
-
-class RequestedSubscription:
-    def __init__(
-        self,
-        service_id: int,
-        instance_id: int,
-        major_version: int,
-        client_endpoint_ip: str,
-        client_endpoint_port: int,
-        protocols: frozenset[TransportLayerProtocol],
-        eventgroup: EventGroup,
-        ttl_subscription: int,
-    ):
-        self.service_id = service_id
-        self.instance_id = instance_id
-        self.major_version = major_version
-        self.client_endpoint_ip = client_endpoint_ip
-        self.client_endpoint_port = client_endpoint_port
-        self.protocols = protocols
-        self.eventgroup = eventgroup
-        self.ttl = ttl_subscription
-
-    def __eq__(self, other: "RequestedSubscription") -> bool:
-        return (
-            self.service_id == other.service_id
-            and self.instance_id == other.instance_id
-            and self.major_version == other.major_version
-            and self.protocols == other.protocols
-            and self.eventgroup == other.eventgroup
-            and self.client_endpoint_ip == other.client_endpoint_ip
-            and self.client_endpoint_port == other.client_endpoint_port
-            and self.ttl == other.ttl
-        )
-
-
-class RequestedSubscriptionStore:
-    def __init__(self):
-        self._subscriptions_by_client: Dict[int, List[RequestedSubscription]] = {}
-
-    def add_subscription(self, writer_id: int, subscription: RequestedSubscription):
-        if writer_id not in self._subscriptions_by_client:
-            self._subscriptions_by_client[writer_id] = []
-            self._subscriptions_by_client[writer_id].append(subscription)
-
-        else:
-            if subscription not in self._subscriptions_by_client[writer_id]:
-                self._subscriptions_by_client[writer_id].append(subscription)
-
-    def remove_subscription(self, writer_id: int, subscription: RequestedSubscription):
-        if writer_id in self._subscriptions_by_client:
-            if subscription in self._subscriptions_by_client[writer_id]:
-                self._subscriptions_by_client[writer_id].remove(subscription)
-
-                if len(self._subscriptions_by_client[writer_id]) == 0:
-                    del self._subscriptions_by_client[writer_id]
-
-    @property
-    def subscriptions(self) -> List[RequestedSubscription]:
-        """
-        Get all subscriptions from all clients.
-        """
-        subscriptions = []
-        for client_subscriptions in self._subscriptions_by_client.values():
-            subscriptions.extend(client_subscriptions)
-        return subscriptions
-
-    def get_client_ids(self, subscription: RequestedSubscription) -> List[int]:
-        """
-        Get all client ids (writer ids) that have the given subscription.
-        """
-        client_ids = []
-        for writer_id, subscriptions in self._subscriptions_by_client.items():
-            if subscription in subscriptions:
-                client_ids.append(writer_id)
-        return client_ids
-
-    def has_subscriptions(
-        self,
-        service_id: int,
-        instance_id: int,
-        major_version: int,
-    ) -> List[Tuple[RequestedSubscription, int]]:
-        """
-        Check if there are any subscriptions for the given service id, instance id, major version and protocol.
-        Returns a list of tuples containing the subscription and the writer id (UDS client).
-        """
-        subscriptions_to_return = []
-        for writer_id, subscriptions in self._subscriptions_by_client.items():
-            for subscription in subscriptions:
-                if (
-                    subscription.service_id == service_id
-                    and subscription.instance_id == instance_id
-                    and subscription.major_version == major_version
-                ):
-                    subscriptions_to_return.append((subscription, writer_id))
-
-        return subscriptions_to_return
-
-    def remove_client(self, writer_id: int):
-        if writer_id in self._subscriptions_by_client:
-            del self._subscriptions_by_client[writer_id]
-
-
 @dataclass
 class MethodCall:
     service_id: int
@@ -296,11 +144,16 @@ class MethodCall:
 class SomeipDaemon:
 
     def __init__(
-        self, server: DaemonServer, config: dict = None, logger: logging.Logger = None
+        self,
+        server: DaemonServer,
+        endpoint_factory: SomeipEndpointFactory,
+        config: dict = None,
+        logger: logging.Logger = None,
     ):
 
         self.config = config
         self.logger = logger
+        self._endpoint_factory = endpoint_factory
 
         self.sd_address = self.config.get("sd_address", DEFAULT_SD_ADDRESS)
         self.sd_port = self.config.get("sd_port", DEFAULT_SD_PORT)
@@ -324,7 +177,7 @@ class SomeipDaemon:
         self._service_subscribers: Dict[ServiceToOffer, Subscribers] = {}
 
         # Subscriptions requested by local clients
-        self._requested_subscriptions = RequestedSubscriptionStore()
+        self._requested_subscriptions = SubscriptionStorage()
 
         self._pending_subscriptions: Set[Subscription] = set()
         self._active_subscriptions: Set[Subscription] = set()
@@ -387,37 +240,6 @@ class SomeipDaemon:
                 self._someip_server_endpoints.remove_endpoint(writer_id, endpoint)
 
         self.logger.debug(f"Client disconnected")
-
-    async def _create_server_endpoint(
-        self, ip: str, port: int, protocol: TransportLayerProtocol
-    ) -> SomeipEndpoint:
-
-        if protocol == TransportLayerProtocol.UDP:
-            loop = asyncio.get_running_loop()
-            rcv_socket = create_udp_socket(ip, port)
-
-            _, udp_endpoint = await loop.create_datagram_endpoint(
-                lambda: UDPSomeipEndpoint(ip, port), sock=rcv_socket
-            )
-
-            udp_endpoint.set_someip_callback(self._someip_message_callback)
-
-            return udp_endpoint
-        else:
-            tcp_client_manager = TcpClientManager(ip, port)
-            loop = asyncio.get_running_loop()
-            server = await loop.create_server(
-                lambda: TcpClientProtocol(client_manager=tcp_client_manager),
-                ip,
-                port,
-            )
-            tcp_someip_endpoint = TCPSomeipEndpoint(
-                server, tcp_client_manager, ip, port
-            )
-
-            tcp_someip_endpoint.set_someip_callback(self._someip_message_callback)
-
-            return tcp_someip_endpoint
 
     async def _check_services_ttl_task(self):
         try:
@@ -570,8 +392,8 @@ class SomeipDaemon:
                     self.logger.debug("check event ids: %s", event_ids)
                     if (
                         event_id in event_ids
-                        and active_subscription.server_endpoint_ip == src_addr[0]
-                        and active_subscription.server_endpoint_port == src_addr[1]
+                        and str(active_subscription.server_endpoint.ip) == src_addr[0]
+                        and active_subscription.server_endpoint.port == src_addr[1]
                         and active_subscription.service_id == header.service_id
                     ):
                         self.logger.debug(
@@ -592,10 +414,10 @@ class SomeipDaemon:
                                 == active_subscription.major_version
                                 and requested_subscription.eventgroup
                                 == active_subscription.eventgroup
-                                and requested_subscription.client_endpoint_ip
-                                == active_subscription.client_endpoint_ip
-                                and requested_subscription.client_endpoint_port
-                                == active_subscription.client_endpoint_port
+                                and requested_subscription.client_endpoint.ip
+                                == active_subscription.client_endpoint.ip
+                                and requested_subscription.client_endpoint.port
+                                == active_subscription.client_endpoint.port
                             ):
 
                                 writer_ids = (
@@ -615,7 +437,10 @@ class SomeipDaemon:
         current_time = time.time()
         subscriptions_to_remove = []
         for subscription in self._active_subscriptions:
-            if current_time - subscription.timestamp > subscription.ttl_seconds:
+            if (
+                current_time - subscription.timestamp_last_update
+                > subscription.ttl_seconds
+            ):
                 subscriptions_to_remove.append(subscription)
 
         for subscription in subscriptions_to_remove:
@@ -629,7 +454,7 @@ class SomeipDaemon:
         current_time = time.time()
         subscriptions_to_remove = []
         for subscription in self._pending_subscriptions:
-            if current_time - subscription.timestamp > 10.0:
+            if current_time - subscription.timestamp_last_update > 10.0:
                 subscriptions_to_remove.append(subscription)
 
         for subscription in subscriptions_to_remove:
@@ -733,7 +558,7 @@ class SomeipDaemon:
             )
 
     async def _handle_subscribe_eventgroup_request(
-        self, message: SubscribeEventGroupRequest, writer_id: int
+        self, message: SubscribeEventGroupRequest, client_id: int
     ):
 
         protocols = []
@@ -749,33 +574,34 @@ class SomeipDaemon:
                     f"Creating new UDP endpoint for {message['client_endpoint_ip']}:{message['client_endpoint_port']}"
                 )
 
-                udp_endpoint = await self._create_server_endpoint(
+                udp_endpoint = await self._endpoint_factory.create_server_endpoint(
                     message["client_endpoint_ip"],
                     message["client_endpoint_port"],
                     TransportLayerProtocol.UDP,
+                    self._someip_message_callback,
                 )
 
-                udp_endpoint.set_someip_callback(self._someip_message_callback)
-
-                self._someip_client_endpoints.add_endpoint(writer_id, udp_endpoint)
+                self._someip_client_endpoints.add_endpoint(client_id, udp_endpoint)
 
         if message["tcp"]:
             protocols.append(TransportLayerProtocol.TCP)
 
         event_group = EventGroup.from_json(message["eventgroup"])
 
-        new_subscription = RequestedSubscription(
+        new_subscription = Subscription(
             service_id=message["service_id"],
             instance_id=message["instance_id"],
             major_version=message["major_version"],
-            client_endpoint_ip=message["client_endpoint_ip"],
-            client_endpoint_port=message["client_endpoint_port"],
+            client_endpoint=Endpoint(
+                ip=message["client_endpoint_ip"], port=message["client_endpoint_port"]
+            ),
+            server_endpoint=None,
             protocols=frozenset(protocols),
             eventgroup=event_group,
-            ttl_subscription=message["ttl_subscription"],
+            ttl_seconds=message["ttl_subscription"],
         )
 
-        self._requested_subscriptions.add_subscription(writer_id, new_subscription)
+        self._requested_subscriptions.add_subscription(client_id, new_subscription)
 
     def _handle_stop_subscribe_eventgroup_request(
         self, message: StopSubscribeEventGroupRequest, writer_id: int
@@ -810,8 +636,9 @@ class SomeipDaemon:
             minor_version=message["minor_version"],
             offer_ttl_seconds=message["ttl"],
             cyclic_offer_delay_ms=message["cyclic_offer_delay_ms"],
-            endpoint_ip=message["endpoint_ip"],
-            endpoint_port=message["endpoint_port"],
+            endpoint=Endpoint(
+                ipaddress.IPv4Address(message["endpoint_ip"]), message["endpoint_port"]
+            ),
             methods=methods,
             eventgroups=eventgroups,
         )
@@ -821,19 +648,21 @@ class SomeipDaemon:
         # Check if there is already an endpoint for the ip and port, if not, open a new endpoint
         if service_to_add.has_udp:
             if not self._someip_server_endpoints.has_endpoint(
-                service_to_add.endpoint_ip,
-                service_to_add.endpoint_port,
+                str(service_to_add.endpoint.ip),
+                service_to_add.endpoint.port,
                 TransportLayerProtocol.UDP,
             ):
                 self.logger.debug(
-                    f"Creating new UDP endpoint for {service_to_add.endpoint_ip}:{service_to_add.endpoint_port}"
+                    f"Creating new UDP endpoint for {service_to_add.endpoint}"
                 )
 
-                udp_endpoint = await self._create_server_endpoint(
-                    service_to_add.endpoint_ip,
-                    service_to_add.endpoint_port,
+                udp_endpoint = await self._endpoint_factory.create_server_endpoint(
+                    str(service_to_add.endpoint.ip),
+                    service_to_add.endpoint.port,
                     TransportLayerProtocol.UDP,
+                    self._someip_message_callback,
                 )
+
                 self._someip_server_endpoints.add_endpoint(writer_id, udp_endpoint)
 
         if service_to_add.has_tcp:
@@ -846,11 +675,13 @@ class SomeipDaemon:
                     f"Creating new TCP endpoint for {service_to_add.endpoint_ip}:{service_to_add.endpoint_port}"
                 )
 
-                tcp_endpoint = await self._create_server_endpoint(
+                tcp_endpoint = await self._endpoint_factory.create_server_endpoint(
                     service_to_add.endpoint_ip,
                     service_to_add.endpoint_port,
                     TransportLayerProtocol.TCP,
+                    self._someip_message_callback,
                 )
+
                 self._someip_server_endpoints.add_endpoint(writer_id, tcp_endpoint)
 
         cyclic_offer_delay_ms = message["cyclic_offer_delay_ms"]
@@ -989,15 +820,16 @@ class SomeipDaemon:
                     f"Creating new UDP endpoint for {message['src_endpoint_ip']}:{message['src_endpoint_port']}"
                 )
 
-                udp_endpoint = await self._create_server_endpoint(
+                udp_endpoint = await self._endpoint_factory.create_client_endpoint(
+                    message["dst_endpoint_ip"],
+                    message["dst_endpoint_port"],
                     message["src_endpoint_ip"],
                     message["src_endpoint_port"],
                     TransportLayerProtocol.UDP,
+                    self._someip_message_callback,
+                    self.logger,
                 )
 
-                udp_endpoint.set_someip_callback(self._someip_message_callback)
-
-                self._someip_client_endpoints.add_endpoint(writer_id, udp_endpoint)
                 endpoint = udp_endpoint
             else:
                 endpoint = self._someip_client_endpoints.get_endpoint_by_ip_port(
@@ -1018,15 +850,15 @@ class SomeipDaemon:
                     f"Creating new TCP endpoint for {message['src_endpoint_ip']}:{message['src_endpoint_port']}"
                 )
 
-                tcp_endpoint = TCPClientSomeipEndpoint(
+                tcp_endpoint = self._endpoint_factory.create_client_endpoint(
                     message["dst_endpoint_ip"],
                     message["dst_endpoint_port"],
                     message["src_endpoint_ip"],
                     message["src_endpoint_port"],
+                    TransportLayerProtocol.TCP,
+                    self._someip_message_callback,
                     self.logger,
                 )
-
-                tcp_endpoint.set_someip_callback(self._someip_message_callback)
 
                 self._someip_client_endpoints.add_endpoint(writer_id, tcp_endpoint)
                 endpoint: TCPClientSomeipEndpoint = tcp_endpoint
@@ -1310,13 +1142,69 @@ class SomeipDaemon:
                 reboot_flag,
             ) = self._mcast_session_handler.update_session()
 
-            sd_message = build_offer_service_sd_header(
-                services_to_offer, session_id, reboot_flag
-            )
-            buffer = sd_message.to_buffer()
+            options = set()
+            for service in services_to_offer:
+                if service.has_udp:
+                    options.add(
+                        IpV4EndpointOption(
+                            address=service.endpoint.ip,
+                            protocol=TransportLayerProtocol.UDP,
+                            port=service.endpoint.port,
+                        )
+                    )
+                if service.has_tcp:
+                    options.add(
+                        IpV4EndpointOption(
+                            address=service.endpoint.ip,
+                            protocol=TransportLayerProtocol.TCP,
+                            port=service.endpoint.port,
+                        )
+                    )
+
+            options = list(options)
+            sd_message = SdMessage()
+            sd_message.session_id = session_id
+            sd_message.reboot_flag = reboot_flag
+
+            for service in services_to_offer:
+
+                endpoints = []
+                if service.has_udp:
+                    endpoints.extend(
+                        [
+                            option
+                            for option in options
+                            if option.protocol == TransportLayerProtocol.UDP
+                            and option.address == service.endpoint.ip
+                            and option.port == service.endpoint.port
+                        ]
+                    )
+                if service.has_tcp:
+                    endpoints.extend(
+                        [
+                            option
+                            for option in options
+                            if option.protocol == TransportLayerProtocol.TCP
+                            and option.address == service.endpoint.ip
+                            and option.port == service.endpoint.port
+                        ]
+                    )
+
+                new_entry = OfferServiceEntry(
+                    service_id=service.service_id,
+                    instance_id=service.instance_id,
+                    major_version=service.major_version,
+                    minor_version=service.minor_version,
+                    ttl=service.offer_ttl_seconds,
+                    ip_v4_endpoints=endpoints,
+                    ip_v6_endpoints=[],
+                )
+                sd_message.entries.append(new_entry)
 
             if self._ucast_transport:
-                self._ucast_transport.sendto(buffer, (self.sd_address, self.sd_port))
+                self._ucast_transport.sendto(
+                    serialize_sd_message(sd_message), (self.sd_address, self.sd_port)
+                )
 
     def prepare_message(self, message: dict):
         payload = json.dumps(message).encode("utf-8")
@@ -1408,27 +1296,29 @@ class SomeipDaemon:
 
             if TransportLayerProtocol.TCP in requested_protocols:
                 if not self._someip_client_endpoints.has_tcp_endpoint(
-                    requested_subscription[0].client_endpoint_ip,
-                    requested_subscription[0].client_endpoint_port,
+                    str(requested_subscription[0].client_endpoint.ip),
+                    requested_subscription[0].client_endpoint.port,
                     str(offered_service.endpoint[0]),
                     offered_service.endpoint[1],
                 ):
                     self.logger.debug(
-                        f"Creating new TCP endpoint for {requested_subscription[0].client_endpoint_ip}:{requested_subscription[0].client_endpoint_port}"
+                        f"Creating new TCP endpoint for {requested_subscription[0].client_endpoint}"
                     )
 
-                    tcp_endpoint = TCPClientSomeipEndpoint(
-                        str(offered_service.endpoint[0]),
-                        offered_service.endpoint[1],
-                        requested_subscription[0].client_endpoint_ip,
-                        requested_subscription[0].client_endpoint_port,
+                    tcp_endpoint = self._endpoint_factory.create_client_endpoint(
+                        str(offered_service.endpoint.ip),
+                        offered_service.endpoint.port,
+                        str(requested_subscription[0].client_endpoint.ip),
+                        requested_subscription[0].client_endpoint.port,
+                        TransportLayerProtocol.TCP,
+                        self._someip_message_callback,
                         self.logger,
                     )
 
-                    tcp_endpoint.set_someip_callback(self._someip_message_callback)
                     self._someip_client_endpoints.add_endpoint(
                         requested_subscription[1], tcp_endpoint
                     )
+
                     # TODO: This shall not block the handle_client function. A new task shall be created
                     # For TCP wait for the connection to be established
                     # while not tcp_endpoint.is_connected():
@@ -1447,11 +1337,9 @@ class SomeipDaemon:
             for protocol in requested_protocols:
                 options.append(
                     IpV4EndpointOption(
-                        address=ipaddress.IPv4Address(
-                            requested_subscription[0].client_endpoint_ip
-                        ),
+                        address=requested_subscription[0].client_endpoint.ip,
                         protocol=protocol,
-                        port=requested_subscription[0].client_endpoint_port,
+                        port=requested_subscription[0].client_endpoint.port,
                     )
                 )
 
@@ -1460,7 +1348,7 @@ class SomeipDaemon:
                 instance_id=offered_service.instance_id,
                 major_version=offered_service.major_version,
                 minor_version=offered_service.minor_version,
-                ttl=requested_subscription[0].ttl,
+                ttl=requested_subscription[0].ttl_seconds,
                 eventgroup_id=requested_subscription[0].eventgroup.id,
                 counter=0,
                 ip_v4_endpoints=options,
@@ -1468,24 +1356,26 @@ class SomeipDaemon:
             )
             sd_message.entries.append(entry)
 
+            client_endpoint = requested_subscription[0].client_endpoint
+            server_endpoint = offered_service.endpoint
+
             pending_subscription = Subscription(
                 service_id=offered_service.service_id,
                 instance_id=offered_service.instance_id,
                 major_version=offered_service.major_version,
                 eventgroup=requested_subscription[0].eventgroup,
-                ttl_seconds=requested_subscription[0].ttl,
-                client_endpoint_ip=requested_subscription[0].client_endpoint_ip,
-                client_endpoint_port=requested_subscription[0].client_endpoint_port,
-                server_endpoint_ip=str(offered_service.endpoint[0]),
-                server_endpoint_port=offered_service.endpoint[1],
-                timestamp=time.time(),
+                ttl_seconds=requested_subscription[0].ttl_seconds,
+                client_endpoint=client_endpoint,
+                server_endpoint=server_endpoint,
+                protocols=frozenset(requested_protocols),
+                timestamp_last_update=time.time(),
             )
             self._pending_subscriptions.add(pending_subscription)
 
             if self._ucast_transport:
                 self._ucast_transport.sendto(
                     serialize_sd_message(sd_message),
-                    (str(offered_service.endpoint[0]), self.sd_port),
+                    (str(offered_service.endpoint.ip), self.sd_port),
                 )
 
     def _handle_subscription(
@@ -1608,7 +1498,7 @@ class SomeipDaemon:
                 break
 
         if pending_subscription is not None:
-            pending_subscription.timestamp = time.time()
+            pending_subscription.timestamp_last_update = time.time()
             self._active_subscriptions.discard(pending_subscription)
             self._active_subscriptions.add(pending_subscription)
 
@@ -1804,7 +1694,7 @@ async def async_main():
 
     daemon_server = DaemonServer(logger)
 
-    daemon = SomeipDaemon(daemon_server, config, logger)
+    daemon = SomeipDaemon(daemon_server, SomeipEndpointFactory(), config, logger)
 
     daemon_server.client_connected += daemon.new_client_connected
     daemon_server.client_disconnected += daemon.client_disconnected

@@ -14,6 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from typing import List
+from someipy._internal._common.endpoint import Endpoint
 from someipy.service import Event, EventGroup, Method
 from someipy._internal.transport_layer_protocol import TransportLayerProtocol
 
@@ -28,8 +29,7 @@ class ServiceToOffer:
         minor_version: int,
         offer_ttl_seconds: int,
         cyclic_offer_delay_ms: int,
-        endpoint_ip: str,
-        endpoint_port: int,
+        endpoint: Endpoint,
         methods: List[Method],
         eventgroups: List[EventGroup],
     ):
@@ -40,8 +40,7 @@ class ServiceToOffer:
         self.minor_version = minor_version
         self.offer_ttl_seconds = offer_ttl_seconds
         self.cyclic_offer_delay_ms = cyclic_offer_delay_ms
-        self.endpoint_ip = endpoint_ip
-        self.endpoint_port = endpoint_port
+        self.endpoint = endpoint
         self.methods = methods
         self.eventgroups = eventgroups
         self.last_offer_time = None  # Placeholder for last offer time
@@ -57,8 +56,7 @@ class ServiceToOffer:
             and self.minor_version == other.minor_version
             and self.offer_ttl_seconds == other.offer_ttl_seconds
             and self.cyclic_offer_delay_ms == other.cyclic_offer_delay_ms
-            and self.endpoint_ip == other.endpoint_ip
-            and self.endpoint_port == other.endpoint_port
+            and self.endpoint == other.endpoint
             and self.methods == other.methods
             and self.eventgroups == other.eventgroups
         )
@@ -73,8 +71,7 @@ class ServiceToOffer:
                 self.minor_version,
                 self.offer_ttl_seconds,
                 self.cyclic_offer_delay_ms,
-                self.endpoint_ip,
-                self.endpoint_port,
+                self.endpoint,
                 tuple(self.methods),  # Convert list to tuple for hashing
                 tuple(self.eventgroups),  # Convert list to tuple for hashing
             )
