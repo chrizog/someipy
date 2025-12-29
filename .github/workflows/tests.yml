@@ -27,6 +27,30 @@ jobs:
         pip install -e .
         pip install pytest
         pip install pytest-asyncio
+        pip install coverage
 
     - name: Run pytest
-      run: pytest tests
+      run: coverage run -m pytest tests/
+
+    - name: Generate coverage HTML report
+      run: coverage html
+
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: './htmlcov'
+
+    - name: Generate coverage json
+      run: coverage json -o coverage.json
+
+    - name: Upload coverage json to gist
+      env:
+        GIST_ID: ${{ secrets.GIST_ID }}
+        GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+      run: |
+        # Create a GitHub CLI authentication token
+        echo "$GIST_TOKEN" | gh auth login --with-token
+          
+        # Update existing gist
+        gh gist edit $GIST_ID coverage.json
