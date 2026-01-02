@@ -166,6 +166,9 @@ class OfferServiceStorage:
         """Remove all services from the storage"""
         self._services.clear()
 
+    def __len__(self) -> int:
+        return len(self._services)
+
     @property
     def cyclic_offer_delays(self) -> List[int]:
         """Returns a list of all unique cyclic_offer_delay_ms values from stored services"""

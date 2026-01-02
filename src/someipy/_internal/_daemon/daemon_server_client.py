@@ -13,12 +13,12 @@ class DaemonServerClient:
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
-        id: int,
+        client_id: int,
         logger: logging.Logger = None,
     ):
         self._reader = reader
         self._writer = writer
-        self._id = id
+        self._id = client_id
         self._logger = logger
         self.message_received: Event[ClientMessageEventArgs] = Event()
 
@@ -65,7 +65,9 @@ class DaemonServerClient:
                 message_buffer += data
 
                 if len(message_buffer) == message_length:
-                    self._logger.debug(f"Client sent message: {message_buffer}")
+                    self._logger.debug(
+                        f"Client {self.id} sent message: {message_buffer}"
+                    )
                     json_message = json.loads(message_buffer.decode("utf-8"))
                     await self.message_received.invoke(
                         self, ClientMessageEventArgs(self, json_message)
@@ -77,11 +79,16 @@ class DaemonServerClient:
                     raise Exception("Client sent too much message data.")
         return None
 
-    def send(self, message: bytes):
-        pass
+    async def send(self, data: bytes):
+        self._writer.write(data)
+        await self._writer.drain()
+
+    async def close(self):
+        self._writer.close()
+        await self._writer.wait_closed()
 
     @property
-    def id(self) -> str:
+    def id(self) -> int:
         return self._id
 
 

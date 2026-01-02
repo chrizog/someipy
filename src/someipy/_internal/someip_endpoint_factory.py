@@ -80,7 +80,7 @@ class SomeipEndpointFactory:
         logger: logging.Logger = None,
     ) -> SomeipEndpoint:
         if protocol == TransportLayerProtocol.UDP:
-            udp_endpoint = SomeipEndpointFactory.create_server_endpoint(
+            udp_endpoint = await SomeipEndpointFactory.create_server_endpoint(
                 src_ip,
                 src_port,
                 TransportLayerProtocol.UDP,
@@ -93,3 +93,18 @@ class SomeipEndpointFactory:
             )
             tcp_endpoint.set_someip_callback(someip_message_callback)
             return tcp_endpoint
+
+    @staticmethod
+    def create_tcp_client_endpoint(
+        dst_ip: str,
+        dst_port: int,
+        src_ip: str,
+        src_port: int,
+        someip_message_callback: Callable[[SomeIpMessage], None],
+        logger: logging.Logger = None,
+    ) -> TCPClientSomeipEndpoint:
+        tcp_endpoint = TCPClientSomeipEndpoint(
+            dst_ip, dst_port, src_ip, src_port, logger
+        )
+        tcp_endpoint.set_someip_callback(someip_message_callback)
+        return tcp_endpoint

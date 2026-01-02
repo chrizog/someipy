@@ -87,7 +87,7 @@ async def main():
     service_instance_temperature.register_callback(temperature_callback)
 
     # The second argument is the time to live (TTL) of the subscription in seconds
-    service_instance_temperature.subscribe_eventgroup(temperature_eventgroup, 5.0)
+    service_instance_temperature.subscribe_eventgroup(temperature_eventgroup, 5)
 
     try:
         # Keep the task alive

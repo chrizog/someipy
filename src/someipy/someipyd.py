@@ -28,6 +28,7 @@ import ipaddress
 import time
 from typing import Any, Dict, List, Set, Tuple, Union
 
+import someipy
 from someipy._internal._common.endpoint import Endpoint
 from someipy._internal._daemon.daemon_server_client import (
     ClientMessageEventArgs,
@@ -46,24 +47,24 @@ from someipy._internal._sd.entries.subscribe_eventgroup_entry import (
 )
 from someipy._internal._sd.options.endpoint import IpV4EndpointOption
 from someipy._internal._sd.sd_message import SdMessage
+from someipy._internal._sd.sd_message_creator import (
+    create_offer_service_message,
+    create_stop_offer_service_message,
+)
 from someipy._internal._sd.service_instance import ServiceInstance
 from someipy._internal.message_types import MessageType
 from someipy._internal.someip_endpoint import (
-    SomeipEndpoint,
     TCPClientSomeipEndpoint,
     TCPSomeipEndpoint,
-    UDPSomeipEndpoint,
 )
 from someipy._internal.someip_endpoint_factory import SomeipEndpointFactory
 from someipy._internal.someip_endpoint_storage import SomeipEndpointStorage
 from someipy._internal.someip_message import SomeIpMessage
-from someipy._internal.tcp_client_manager import TcpClientManager, TcpClientProtocol
 from someipy._internal.transport_layer_protocol import TransportLayerProtocol
 from someipy._internal.session_handler import SessionHandler
 from someipy._internal.simple_timer import SimplePeriodicTimer
 from someipy._internal.someip_header import SomeIpHeader
 from someipy._internal.someip_sd_builder import (
-    build_stop_offer_service_sd_header,
     build_subscribe_eventgroup_ack_entry,
     build_subscribe_eventgroup_ack_sd_header,
 )
@@ -103,7 +104,10 @@ from someipy._internal.utils import (
     create_rcv_broadcast_socket,
     create_udp_socket,
 )
-from someipy._internal.offer_service_storage import OfferServiceStorage, ServiceToOffer
+from someipy._internal._daemon.offer_service_storage import (
+    OfferServiceStorage,
+    ServiceToOffer,
+)
 from someipy.service import Event, Method, EventGroup
 from someipy._internal._daemon.daemon_server import (
     ClientConnectedEventArgs,
@@ -114,7 +118,7 @@ from someipy._internal._daemon.daemon_server import (
 DEFAULT_SOCKET_PATH = "/tmp/someipyd.sock"
 DEFAULT_CONFIG_FILE = "someipyd.json"
 DEFAULT_SD_ADDRESS = "224.224.224.245"
-DEFAULT_INTERFACE_IP = "127.0.0.2"
+DEFAULT_INTERFACE_IP = "127.0.0.1"
 DEFAULT_SD_PORT = 30490
 DEFAULT_TCP_PORT = 30500
 
@@ -214,12 +218,15 @@ class SomeipDaemon:
     ):
         self.logger.info(f"Client disconnected: {event_args.client.id}")
 
-        writer_id = event_args.client.id
+        client_id = event_args.client.id
+
+        event_args.client.message_received -= self.handle_client_message
+
         # Remove all subscriptions for the client
-        self._requested_subscriptions.remove_client(writer_id)
+        self._requested_subscriptions.remove_client(client_id)
 
         # Clean up the transmission task for the client. This will also clean up the transmission queue
-        tx_task = self._tx_tasks.get(writer_id)
+        tx_task = self._tx_tasks.pop(client_id, None)
         if tx_task and not tx_task.cancelled():
             tx_task.cancel()
             try:
@@ -227,17 +234,17 @@ class SomeipDaemon:
             except asyncio.CancelledError:
                 pass
 
-        self._services_to_offer.remove_client(writer_id)
+        self._services_to_offer.remove_client(client_id)
         self._cleanup_unused_timers()
 
-        client_endpoints = self._someip_server_endpoints.get_endpoints(writer_id)
+        client_endpoints = self._someip_server_endpoints.get_endpoints(client_id)
         if client_endpoints is not None:
             for endpoint in client_endpoints:
                 self.logger.debug(
-                    f"Closing endpoint {endpoint.dst_ip()}:{endpoint.dst_port()} for client {writer_id}"
+                    f"Closing endpoint {endpoint.dst_ip()}:{endpoint.dst_port()} for client {client_id}"
                 )
                 endpoint.shutdown()
-                self._someip_server_endpoints.remove_endpoint(writer_id, endpoint)
+                self._someip_server_endpoints.remove_endpoint(client_id, endpoint)
 
         self.logger.debug(f"Client disconnected")
 
@@ -245,33 +252,7 @@ class SomeipDaemon:
         try:
             while True:
                 await asyncio.sleep(0.1)
-
-                self._cleanup_obsolete_pending_subscriptions()
-                self._cleanup_active_subscriptions()
-
-                count_before = len(self._found_services)
-
-                current_time = time.time()
-
-                # self.logger.debug(f"Current time: {current_time}, checking services...")
-
-                # for service in self._found_services:
-                #    self.logger.debug(
-                #        f"Checking service {service.service_id}, timestamp: {service.timestamp}, ttl: {service.ttl}"
-                #    )
-
-                # Process timeouts and filter services in one operation
-                self._found_services = [
-                    service
-                    for service in self._found_services
-                    if not (current_time - service.timestamp > service.service.ttl)
-                ]
-
-                count_after = len(self._found_services)
-                if count_before != count_after:
-                    self.logger.info(
-                        f"Removed {count_before - count_after} timed out services. Remaining: {count_after}"
-                    )
+                self._check_service_ttl_task_impl()
 
         except asyncio.CancelledError:
             # Task was cancelled - exit cleanly
@@ -279,6 +260,28 @@ class SomeipDaemon:
         except Exception as e:
             self.logger.error(f"Error in service TTL checker task: {e}")
         pass
+
+    def _check_service_ttl_task_impl(self):
+
+        self._cleanup_obsolete_pending_subscriptions()
+        self._cleanup_active_subscriptions()
+
+        count_before = len(self._found_services)
+
+        current_time = time.time()
+
+        # Process timeouts and filter services in one operation
+        self._found_services = [
+            service
+            for service in self._found_services
+            if not (current_time - service.timestamp > service.ttl)
+        ]
+
+        count_after = len(self._found_services)
+        if count_before != count_after:
+            self.logger.info(
+                f"Removed {count_before - count_after} timed out services. Remaining: {count_after}"
+            )
 
     def _someip_message_callback(
         self,
@@ -300,8 +303,8 @@ class SomeipDaemon:
 
                 if (
                     service.service_id == service_id
-                    and service.endpoint_ip == dst_addr[0]
-                    and service.endpoint_port == dst_addr[1]
+                    and str(service.endpoint.ip) == dst_addr[0]
+                    and service.endpoint.port == dst_addr[1]
                 ):
                     self.logger.debug(f"Found matching service {service.service_id}")
                     for method in service.methods:
@@ -420,14 +423,14 @@ class SomeipDaemon:
                                 == active_subscription.client_endpoint.port
                             ):
 
-                                writer_ids = (
+                                client_ids = (
                                     self._requested_subscriptions.get_client_ids(
                                         requested_subscription
                                     )
                                 )
 
-                                for writer_id in writer_ids:
-                                    tx_queue = self._tx_queues.get(writer_id)
+                                for client_id in client_ids:
+                                    tx_queue = self._tx_queues.get(client_id)
                                     if tx_queue:
                                         tx_queue.put_nowait(
                                             self.prepare_message(event_msg)
@@ -481,7 +484,7 @@ class SomeipDaemon:
             endpoint_used = False
             for service in self._services_to_offer.services:
                 if (
-                    service.endpoint_ip == endpoint.ip()
+                    service.endpoint.ip == endpoint.ip()
                     and service.endpoint_port == endpoint.port()
                 ):
                     endpoint_used = True
@@ -500,8 +503,7 @@ class SomeipDaemon:
 
                     try:
                         # Send the data
-                        client.writer.write(data)
-                        await client.writer.drain()
+                        await client.send(data)
                         tx_queue.task_done()
                     except ConnectionError as e:
                         self.logger.error(f"Error sending data in tx task: {e}")
@@ -515,8 +517,7 @@ class SomeipDaemon:
             self.logger.debug(f"TX task for writer {client.id} cancelled")
             # Perform cleanup here
             try:
-                client.writer.close()
-                await client.writer.wait_closed()
+                await client.close()
             except Exception as e:
                 self.logger.error(f"Error closing writer: {e}")
         finally:
@@ -527,7 +528,8 @@ class SomeipDaemon:
     async def handle_client_message(
         self, sender: object, event_args: ClientMessageEventArgs
     ):
-        writer_id = id(event_args.client.id)
+        client_id = event_args.client.id
+
         message = event_args.message
         message_type = event_args.message.get("type")
         self.logger.debug(f"Received message type: {message_type}")
@@ -547,10 +549,10 @@ class SomeipDaemon:
             handler = message_handlers[message_type]
 
             if asyncio.iscoroutinefunction(handler):
-                await handler(message, writer_id)
+                await handler(message, client_id)
                 return
             else:
-                handler(message, writer_id)
+                handler(message, client_id)
                 return
         else:
             self.logger.warning(
@@ -588,12 +590,14 @@ class SomeipDaemon:
 
         event_group = EventGroup.from_json(message["eventgroup"])
 
+        client_address = ipaddress.IPv4Address(message["client_endpoint_ip"])
+
         new_subscription = Subscription(
             service_id=message["service_id"],
             instance_id=message["instance_id"],
             major_version=message["major_version"],
             client_endpoint=Endpoint(
-                ip=message["client_endpoint_ip"], port=message["client_endpoint_port"]
+                ip=client_address, port=message["client_endpoint_port"]
             ),
             server_endpoint=None,
             protocols=frozenset(protocols),
@@ -601,6 +605,7 @@ class SomeipDaemon:
             ttl_seconds=message["ttl_subscription"],
         )
 
+        self.logger.debug(f"Add subscription to storage with id {client_id}")
         self._requested_subscriptions.add_subscription(client_id, new_subscription)
 
     def _handle_stop_subscribe_eventgroup_request(
@@ -667,17 +672,17 @@ class SomeipDaemon:
 
         if service_to_add.has_tcp:
             if not self._someip_server_endpoints.has_endpoint(
-                service_to_add.endpoint_ip,
-                service_to_add.endpoint_port,
+                str(service_to_add.endpoint.ip),
+                service_to_add.endpoint.port,
                 TransportLayerProtocol.TCP,
             ):
                 self.logger.debug(
-                    f"Creating new TCP endpoint for {service_to_add.endpoint_ip}:{service_to_add.endpoint_port}"
+                    f"Creating new TCP endpoint for {service_to_add.endpoint}"
                 )
 
                 tcp_endpoint = await self._endpoint_factory.create_server_endpoint(
-                    service_to_add.endpoint_ip,
-                    service_to_add.endpoint_port,
+                    str(service_to_add.endpoint.ip),
+                    service_to_add.endpoint.port,
                     TransportLayerProtocol.TCP,
                     self._someip_message_callback,
                 )
@@ -712,8 +717,9 @@ class SomeipDaemon:
             minor_version=message["minor_version"],
             offer_ttl_seconds=message["ttl"],
             cyclic_offer_delay_ms=message["cyclic_offer_delay_ms"],
-            endpoint_ip=message["endpoint_ip"],
-            endpoint_port=message["endpoint_port"],
+            endpoint=Endpoint(
+                ipaddress.IPv4Address(message["endpoint_ip"]), message["endpoint_port"]
+            ),
             methods=methods,
             eventgroups=eventgroups,
         )
@@ -727,15 +733,19 @@ class SomeipDaemon:
             reboot_flag,
         ) = self._mcast_session_handler.update_session()
 
-        sd_header = build_stop_offer_service_sd_header(
-            [service_to_stop], session_id, reboot_flag
+        sd_message = create_stop_offer_service_message(
+            services_to_stop=[service_to_stop],
+            session_id=session_id,
+            reboot_flag=reboot_flag,
         )
-        buffer = sd_header.to_buffer()
+
         if self._ucast_transport:
             self.logger.debug(
                 f"Send stop offer message for service 0x{service_to_stop.service_id:04x}, instance 0x{service_to_stop.instance_id:04x} to {self.sd_address}:{self.sd_port}"
             )
-            self._ucast_transport.sendto(buffer, (self.sd_address, self.sd_port))
+            self._ucast_transport.sendto(
+                serialize_sd_message(sd_message), (self.sd_address, self.sd_port)
+            )
 
         if service_to_stop.has_udp:
             try:
@@ -744,7 +754,7 @@ class SomeipDaemon:
                 )
                 if udp_endpoint:
                     self.logger.debug(
-                        f"Closing UDP endpoint for {service_to_stop.endpoint_ip}:{service_to_stop.endpoint_port}"
+                        f"Closing UDP endpoint for {service_to_stop.endpoint}"
                     )
                     udp_endpoint.shutdown()
                     self._someip_server_endpoints.remove_endpoint(
@@ -752,7 +762,7 @@ class SomeipDaemon:
                     )
             except Exception as e:
                 self.logger.error(
-                    f"Error closing UDP endpoint for {service_to_stop.endpoint_ip}:{service_to_stop.endpoint_port}: {e}"
+                    f"Error closing UDP endpoint for {service_to_stop.endpoint}: {e}"
                 )
 
         if service_to_stop.has_tcp:
@@ -762,7 +772,7 @@ class SomeipDaemon:
                 )
                 if tcp_endpoint:
                     self.logger.debug(
-                        f"Closing TCP endpoint for {service_to_stop.endpoint_ip}:{service_to_stop.endpoint_port}"
+                        f"Closing TCP endpoint for {service_to_stop.endpoint}"
                     )
                     tcp_endpoint.shutdown()
                     self._someip_server_endpoints.remove_endpoint(
@@ -770,7 +780,7 @@ class SomeipDaemon:
                     )
             except Exception as e:
                 self.logger.error(
-                    f"Error closing TCP endpoint for {service_to_stop.endpoint_ip}:{service_to_stop.endpoint_port}: {e}"
+                    f"Error closing TCP endpoint for {service_to_stop.endpoint}: {e}"
                 )
 
     def _handle_inbound_call_method_response(
@@ -850,12 +860,11 @@ class SomeipDaemon:
                     f"Creating new TCP endpoint for {message['src_endpoint_ip']}:{message['src_endpoint_port']}"
                 )
 
-                tcp_endpoint = self._endpoint_factory.create_client_endpoint(
+                tcp_endpoint = self._endpoint_factory.create_tcp_client_endpoint(
                     message["dst_endpoint_ip"],
                     message["dst_endpoint_port"],
                     message["src_endpoint_ip"],
                     message["src_endpoint_port"],
-                    TransportLayerProtocol.TCP,
                     self._someip_message_callback,
                     self.logger,
                 )
@@ -934,20 +943,17 @@ class SomeipDaemon:
             if service.has_tcp:
                 protocols_to_add.add(TransportLayerProtocol.TCP)
 
-            service_to_add = SdService2(
+            service_to_add = ServiceInstance(
                 service_id=service.service_id,
                 instance_id=service.instance_id,
                 major_version=service.major_version,
                 minor_version=service.minor_version,
-                ttl=0,
-                endpoint=(
-                    ipaddress.IPv4Address(service.endpoint_ip),
-                    service.endpoint_port,
-                ),
+                ttl=service.offer_ttl_seconds,
+                endpoint=service.endpoint,
                 protocols=frozenset(protocols_to_add),
+                timestamp=0.0,
             )
 
-            service_to_add = SdServiceWithTimestamp(service_to_add, 0.0)
             all_services.append(service_to_add)
 
         for found_service in all_services:
@@ -964,17 +970,17 @@ class SomeipDaemon:
             """
 
             if (
-                (message["service_id"] == found_service.service.service_id)
+                (message["service_id"] == found_service.service_id)
                 and (
-                    message["instance_id"] == found_service.service.instance_id
+                    message["instance_id"] == found_service.instance_id
                     or message["instance_id"] == 0xFFFF
                 )
                 and (
-                    message["major_version"] == found_service.service.major_version
+                    message["major_version"] == found_service.major_version
                     or message["major_version"] == 0xFF
                 )
                 and (
-                    message["minor_version"] == found_service.service.minor_version
+                    message["minor_version"] == found_service.minor_version
                     or message["minor_version"] == 0xFFFFFFFF
                 )
             ):
@@ -982,12 +988,12 @@ class SomeipDaemon:
                 response = create_uds_message(
                     FindServiceResponse,
                     success=True,
-                    service_id=found_service.service.service_id,
-                    instance_id=found_service.service.instance_id,
-                    major_version=found_service.service.major_version,
-                    minor_version=found_service.service.minor_version,
-                    endpoint_ip=str(found_service.service.endpoint[0]),
-                    endpoint_port=found_service.service.endpoint[1],
+                    service_id=found_service.service_id,
+                    instance_id=found_service.instance_id,
+                    major_version=found_service.major_version,
+                    minor_version=found_service.minor_version,
+                    endpoint_ip=str(found_service.endpoint.ip),
+                    endpoint_port=found_service.endpoint.port,
                 )
 
                 tx_queue = self._tx_queues.get(writer_id)
@@ -1142,64 +1148,11 @@ class SomeipDaemon:
                 reboot_flag,
             ) = self._mcast_session_handler.update_session()
 
-            options = set()
-            for service in services_to_offer:
-                if service.has_udp:
-                    options.add(
-                        IpV4EndpointOption(
-                            address=service.endpoint.ip,
-                            protocol=TransportLayerProtocol.UDP,
-                            port=service.endpoint.port,
-                        )
-                    )
-                if service.has_tcp:
-                    options.add(
-                        IpV4EndpointOption(
-                            address=service.endpoint.ip,
-                            protocol=TransportLayerProtocol.TCP,
-                            port=service.endpoint.port,
-                        )
-                    )
-
-            options = list(options)
-            sd_message = SdMessage()
-            sd_message.session_id = session_id
-            sd_message.reboot_flag = reboot_flag
-
-            for service in services_to_offer:
-
-                endpoints = []
-                if service.has_udp:
-                    endpoints.extend(
-                        [
-                            option
-                            for option in options
-                            if option.protocol == TransportLayerProtocol.UDP
-                            and option.address == service.endpoint.ip
-                            and option.port == service.endpoint.port
-                        ]
-                    )
-                if service.has_tcp:
-                    endpoints.extend(
-                        [
-                            option
-                            for option in options
-                            if option.protocol == TransportLayerProtocol.TCP
-                            and option.address == service.endpoint.ip
-                            and option.port == service.endpoint.port
-                        ]
-                    )
-
-                new_entry = OfferServiceEntry(
-                    service_id=service.service_id,
-                    instance_id=service.instance_id,
-                    major_version=service.major_version,
-                    minor_version=service.minor_version,
-                    ttl=service.offer_ttl_seconds,
-                    ip_v4_endpoints=endpoints,
-                    ip_v6_endpoints=[],
-                )
-                sd_message.entries.append(new_entry)
+            sd_message = create_offer_service_message(
+                services_to_offer=services_to_offer,
+                session_id=session_id,
+                reboot_flag=reboot_flag,
+            )
 
             if self._ucast_transport:
                 self._ucast_transport.sendto(
@@ -1298,19 +1251,18 @@ class SomeipDaemon:
                 if not self._someip_client_endpoints.has_tcp_endpoint(
                     str(requested_subscription[0].client_endpoint.ip),
                     requested_subscription[0].client_endpoint.port,
-                    str(offered_service.endpoint[0]),
-                    offered_service.endpoint[1],
+                    str(offered_service.endpoint.ip),
+                    offered_service.endpoint.port,
                 ):
                     self.logger.debug(
                         f"Creating new TCP endpoint for {requested_subscription[0].client_endpoint}"
                     )
 
-                    tcp_endpoint = self._endpoint_factory.create_client_endpoint(
+                    tcp_endpoint = self._endpoint_factory.create_tcp_client_endpoint(
                         str(offered_service.endpoint.ip),
                         offered_service.endpoint.port,
                         str(requested_subscription[0].client_endpoint.ip),
                         requested_subscription[0].client_endpoint.port,
-                        TransportLayerProtocol.TCP,
                         self._someip_message_callback,
                         self.logger,
                     )
@@ -1332,6 +1284,7 @@ class SomeipDaemon:
             # Build subscribe message
             sd_message = SdMessage()
             sd_message.session_id = session_id
+            sd_message.reboot_flag = reboot_flag
 
             options = []
             for protocol in requested_protocols:
@@ -1520,20 +1473,42 @@ class SomeipDaemon:
         if addr[0] == self.interface and addr[1] == self.sd_port:
             return
 
-        if is_sd_message(data) is False:
+        if not is_sd_message(data):
             return
 
-        sd_message = deserialize_sd_message(data)
+        sd_message = deserialize_sd_message(data, addr[0], addr[1], multicast=True)
         sd_message.timestamp = time.time()
 
-        # someip_header = SomeIpHeader.from_buffer(data)
-        # if not someip_header.is_sd_header():
-        #    return
-
         for offer_service_entry in [
-            o for o in sd_message.entries if o.entry_type == SdEntryType.OFFER_SERVICE
+            o
+            for o in sd_message.entries
+            if o.type
+            == someipy._internal._sd.entries.sd_entry.SdEntryType.OFFER_SERVICE
         ]:
-            self._handle_offered_service(offer_service_entry, sd_message.timestamp)
+            entry: OfferServiceEntry = offer_service_entry
+
+            protocols = set()
+            for ep in entry.ip_v4_endpoints:
+                protocols.add(ep.protocol)
+            for ep in entry.ip_v6_endpoints:
+                protocols.add(ep.protocol)
+
+            endpoint = Endpoint(
+                ip=entry.ip_v4_endpoints[0].address,
+                port=entry.ip_v4_endpoints[0].port,
+            )
+
+            service_instance = ServiceInstance(
+                service_id=entry.service_id,
+                instance_id=entry.instance_id,
+                major_version=entry.major_version,
+                minor_version=entry.minor_version,
+                ttl=entry.ttl,
+                endpoint=endpoint,
+                protocols=frozenset(protocols),
+                timestamp=sd_message.timestamp,
+            )
+            self._handle_offered_service(service_instance)
 
         someip_sd_header = SomeIpSdHeader.from_buffer(data)
 

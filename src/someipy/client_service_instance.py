@@ -294,6 +294,9 @@ class ClientServiceInstance(ClientInstanceInterface):
     def subscribe_eventgroup(
         self, eventgroup: EventGroup, ttl_subscription_seconds: int
     ):
+        if not isinstance(ttl_subscription_seconds, int):
+            raise ValueError("ttl_subscription_seconds must be an integer value.")
+
         method_request = create_uds_message(
             SubscribeEventGroupRequest,
             service_id=self._service.id,

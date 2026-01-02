@@ -340,7 +340,7 @@ def deserialize_sd_message(
         )
 
         if (
-            common_entry_data.type == SdEntryOnWireType.OFFER_SERVICE.value
+            common_entry_data.type_field_value == SdEntryOnWireType.OFFER_SERVICE.value
             and common_entry_data.ttl != 0
         ):
             (minor_version,) = struct.unpack(
@@ -373,7 +373,8 @@ def deserialize_sd_message(
             entries.append(offer_service_entry)
 
         elif (
-            common_entry_data.type == SdEntryOnWireType.STOP_OFFER_SERVICE.value
+            common_entry_data.type_field_value
+            == SdEntryOnWireType.STOP_OFFER_SERVICE.value
             and common_entry_data.ttl == 0
         ):
             (minor_version,) = struct.unpack(
@@ -395,7 +396,6 @@ def deserialize_sd_message(
                 instance_id=common_entry_data.instance_id,
                 major_version=common_entry_data.major_version,
                 minor_version=minor_version,
-                ttl=common_entry_data.ttl,
                 ip_v4_endpoints=[
                     o for o in applicable_options if isinstance(o, IpV4EndpointOption)
                 ],
@@ -405,7 +405,7 @@ def deserialize_sd_message(
             )
             entries.append(stop_offer_service_entry)
 
-        elif common_entry_data.type == SdEntryOnWireType.FIND_SERVICE.value:
+        elif common_entry_data.type_field_value == SdEntryOnWireType.FIND_SERVICE.value:
             (minor_version,) = struct.unpack(
                 ">I", data[start_entry + 12 : start_entry + 16]
             )
@@ -415,12 +415,12 @@ def deserialize_sd_message(
                 instance_id=common_entry_data.instance_id,
                 major_version=common_entry_data.major_version,
                 minor_version=minor_version,
-                ttl=common_entry_data.ttl,
             )
             entries.append(find_service_entry)
 
         elif (
-            common_entry_data.type == SdEntryOnWireType.SUBSCRIBE_EVENT_GROUP.value
+            common_entry_data.type_field_value
+            == SdEntryOnWireType.SUBSCRIBE_EVENT_GROUP.value
             and common_entry_data.ttl != 0
         ):
             initial_data_requested_flag_counter_value, eventgroup_id = struct.unpack(
@@ -459,7 +459,8 @@ def deserialize_sd_message(
             entries.append(subscribe_eventgroup_entry)
 
         elif (
-            common_entry_data.type == SdEntryOnWireType.STOP_SUBSCRIBE_EVENT_GROUP.value
+            common_entry_data.type_field_value
+            == SdEntryOnWireType.STOP_SUBSCRIBE_EVENT_GROUP.value
             and common_entry_data.ttl == 0
         ):
             initial_data_requested_flag_counter_value, eventgroup_id = struct.unpack(
@@ -496,7 +497,8 @@ def deserialize_sd_message(
             entries.append(stop_subscribe_eventgroup_entry)
 
         elif (
-            common_entry_data.type == SdEntryOnWireType.SUBSCRIBE_EVENT_GROUP_ACK.value
+            common_entry_data.type_field_value
+            == SdEntryOnWireType.SUBSCRIBE_EVENT_GROUP_ACK.value
             and common_entry_data.ttl != 0
         ):
             initial_data_requested_flag_counter_value, eventgroup_id = struct.unpack(
@@ -535,7 +537,8 @@ def deserialize_sd_message(
             entries.append(subscribe_ack_eventgroup_entry)
 
         elif (
-            common_entry_data.type == SdEntryOnWireType.SUBSCRIBE_EVENT_GROUP_NACK.value
+            common_entry_data.type_field_value
+            == SdEntryOnWireType.SUBSCRIBE_EVENT_GROUP_NACK.value
             and common_entry_data.ttl == 0
         ):
             initial_data_requested_flag_counter_value, eventgroup_id = struct.unpack(
@@ -571,5 +574,6 @@ def deserialize_sd_message(
     sd_message.source_port = port
     sd_message.multicast = multicast
     sd_message.session_id = session_id
+    sd_message.reboot_flag = reboot_flag
     sd_message.entries = entries
     return sd_message
