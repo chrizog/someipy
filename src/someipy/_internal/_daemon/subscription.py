@@ -48,21 +48,19 @@ class Subscription:
             and self.instance_id == value.instance_id
             and self.major_version == value.major_version
             and self.eventgroup == value.eventgroup
-            and self.ttl_seconds == value.ttl_seconds
             and self.client_endpoint == value.client_endpoint
             and self.server_endpoint == value.server_endpoint
             and self.protocols == value.protocols
         )
 
     def __hash__(self) -> int:
-        # Do not include the timestamp in the hash calculation
+        # Do not include the timestamp and ttl in the hash calculation
         return hash(
             (
                 self.service_id,
                 self.instance_id,
                 self.major_version,
                 self.eventgroup,
-                self.ttl_seconds,
                 self.client_endpoint,
                 self.server_endpoint,
                 self.protocols,

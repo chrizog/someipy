@@ -29,11 +29,16 @@ The configuration file is a JSON file that allows you to customize the daemon's 
        "sd_port": 30490,
        "log_level": "DEBUG",
        "interface": "127.0.0.2",
-       "log_path": "/var/log/someipy.log"
-   }
+       "log_path": "/var/log/someipy.log",
+       "use_tcp": false,
+       "tcp_host": "127.0.0.1",
+       "tcp_port": 30500
 
 - ``sd_address``: The multicast address for Service Discovery.
 - ``sd_port``: The port for Service Discovery.
 - ``log_level``: The logging level (e.g., DEBUG, INFO, WARNING, ERROR).
 - ``interface``: The network interface to bind to.
 - ``log_path``: The path to the log file.
+- ``use_tcp``: Whether to use TCP sockets instead of UDS sockets for communication between the daemon and clients. If Windows is used `use_tcp` must be set to true.
+- ``tcp_host``: The host address for TCP communication (only relevant if `use_tcp` is true).
+- ``tcp_port``: The port for TCP communication (only relevant if `use_tcp` is true).

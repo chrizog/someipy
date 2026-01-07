@@ -10,9 +10,11 @@ import someipy
 from someipy._internal._common.endpoint import Endpoint
 from someipy._internal._daemon.daemon_server import ClientConnectedEventArgs
 from someipy._internal._daemon.daemon_server_client import DaemonServerClient
+from someipy._internal._daemon.subscription import Subscription
 from someipy._internal._daemon.uds_messages import (
     OfferServiceRequest,
     StopOfferServiceRequest,
+    StopSubscribeEventGroupRequest,
     SubscribeEventGroupRequest,
     create_uds_message,
 )
@@ -60,7 +62,7 @@ def service_instance() -> ServiceInstance:
         major_version=3,
         minor_version=0,
         ttl=10,
-        endpoint=Endpoint("123", 1),
+        endpoint=Endpoint(ipaddress.IPv4Address("192.168.1.1"), 1),
         protocols=frozenset([TransportLayerProtocol.UDP]),
         timestamp=1000,
     )
@@ -94,7 +96,7 @@ def subscribe_event_group_request_udp(eventgroup) -> SubscribeEventGroupRequest:
         major_version=3,
         ttl_subscription=10,
         eventgroup=eventgroup.to_json(),
-        client_endpoint_ip="123",
+        client_endpoint_ip="192.168.1.1",
         client_endpoint_port=1,
         udp=True,
         tcp=False,
@@ -109,7 +111,7 @@ def subscribe_event_group_request_tcp(eventgroup) -> SubscribeEventGroupRequest:
         major_version=3,
         ttl_subscription=10,
         eventgroup=eventgroup.to_json(),
-        client_endpoint_ip="123",
+        client_endpoint_ip="192.168.1.1",
         client_endpoint_port=1,
         udp=False,
         tcp=True,
@@ -129,6 +131,23 @@ def subscribe_event_group_request_udp_and_tcp(eventgroup) -> SubscribeEventGroup
         client_endpoint_port=1,
         udp=True,
         tcp=True,
+    )
+
+
+@pytest.fixture
+def stop_subscribe_eventgroup_request(
+    eventgroup: EventGroup,
+) -> StopSubscribeEventGroupRequest:
+    return create_uds_message(
+        StopSubscribeEventGroupRequest,
+        service_id=1,
+        instance_id=2,
+        major_version=3,
+        eventgroup=eventgroup.to_json(),
+        client_endpoint_ip="192.168.1.1",
+        client_endpoint_port=1,
+        udp=eventgroup.has_udp,
+        tcp=eventgroup.has_tcp,
     )
 
 
@@ -228,12 +247,9 @@ async def test_handle_offered_service_opens_tcp_client_endpoint(
     daemon._handle_offered_service(service_instance)
 
     # Verify that create_client_endpoint was called for TCP
-    mock_endpoint_factory.create_client_endpoint.assert_called_once_with(
-        str(service_instance.endpoint.ip),
-        service_instance.endpoint.port,
-        str(service_instance.endpoint.ip),
-        service_instance.endpoint.port,
-        TransportLayerProtocol.TCP,
+    mock_endpoint_factory.create_tcp_client_endpoint.assert_called_once_with(
+        service_instance.endpoint,
+        service_instance.endpoint,
         daemon._someip_message_callback,
         daemon.logger,
     )
@@ -418,3 +434,91 @@ def test_find_service_request_sends_negative_response(daemon: SomeipDaemon):
 
 def test_find_service_request_sends_positive_response(daemon: SomeipDaemon):
     pass
+
+
+def test_stop_subscribe_eventgroup_request_removes_requested_subscriptions(
+    daemon: SomeipDaemon,
+    eventgroup: EventGroup,
+    stop_subscribe_eventgroup_request: StopSubscribeEventGroupRequest,
+):
+    protocols = [
+        protocol
+        for flag, protocol in (
+            (stop_subscribe_eventgroup_request["udp"], TransportLayerProtocol.UDP),
+            (stop_subscribe_eventgroup_request["tcp"], TransportLayerProtocol.TCP),
+        )
+        if flag
+    ]
+
+    new_subscription = Subscription(
+        service_id=stop_subscribe_eventgroup_request["service_id"],
+        instance_id=stop_subscribe_eventgroup_request["instance_id"],
+        major_version=stop_subscribe_eventgroup_request["major_version"],
+        eventgroup=eventgroup,
+        ttl_seconds=10,
+        client_endpoint=Endpoint(
+            ipaddress.IPv4Address(
+                stop_subscribe_eventgroup_request["client_endpoint_ip"]
+            ),
+            stop_subscribe_eventgroup_request["client_endpoint_port"],
+        ),
+        server_endpoint=None,
+        protocols=frozenset(protocols),
+    )
+
+    daemon._requested_subscriptions.add_subscription(
+        1,
+        new_subscription,
+    )
+
+    assert len(daemon._requested_subscriptions) == 1
+
+    daemon._handle_stop_subscribe_eventgroup_request(
+        stop_subscribe_eventgroup_request, 1
+    )
+
+    assert len(daemon._requested_subscriptions) == 0
+
+
+def test_stop_subscribe_eventgroup_request_removes_pending_and_active_subscriptions(
+    daemon: SomeipDaemon,
+    eventgroup: EventGroup,
+    stop_subscribe_eventgroup_request: StopSubscribeEventGroupRequest,
+):
+    protocols = [
+        protocol
+        for flag, protocol in (
+            (stop_subscribe_eventgroup_request["udp"], TransportLayerProtocol.UDP),
+            (stop_subscribe_eventgroup_request["tcp"], TransportLayerProtocol.TCP),
+        )
+        if flag
+    ]
+
+    endpoint = Endpoint(
+        ipaddress.IPv4Address(stop_subscribe_eventgroup_request["client_endpoint_ip"]),
+        stop_subscribe_eventgroup_request["client_endpoint_port"],
+    )
+
+    new_subscription = Subscription(
+        service_id=stop_subscribe_eventgroup_request["service_id"],
+        instance_id=stop_subscribe_eventgroup_request["instance_id"],
+        major_version=stop_subscribe_eventgroup_request["major_version"],
+        eventgroup=eventgroup,
+        ttl_seconds=10,
+        client_endpoint=endpoint,
+        server_endpoint=endpoint,
+        protocols=frozenset(protocols),
+    )
+
+    daemon._pending_subscriptions.add(new_subscription)
+    daemon._active_subscriptions.add(new_subscription)
+
+    assert len(daemon._pending_subscriptions) == 1
+    assert len(daemon._active_subscriptions) == 1
+
+    daemon._handle_stop_subscribe_eventgroup_request(
+        stop_subscribe_eventgroup_request, 1
+    )
+
+    assert len(daemon._pending_subscriptions) == 0
+    assert len(daemon._active_subscriptions) == 0

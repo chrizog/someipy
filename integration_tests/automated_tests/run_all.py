@@ -14,7 +14,6 @@ from offer_multiple_services import TestOfferMultipleServices
 
 vsomeip_library_path = "/home/christian/projects/someip/vsomeip_install/lib/"
 current_file_path = os.path.abspath(__file__)
-repository = os.path.dirname(os.path.dirname(current_file_path))
 repository = os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
 test_durations = 60  # duration of each test in seconds
 

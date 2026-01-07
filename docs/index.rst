@@ -15,7 +15,7 @@ someipy is based on the specification version of R22-11:
 - `SOME/IP Protocol Specification <https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPProtocol.pdf>`_
 - `SOME/IP Service Discovery Protocol Specification <https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPServiceDiscoveryProtocol.pdf>`_
 
-The library is developed and tested on Ubuntu 22.04 and using Python 3.8.
+The library is developed and tested on Ubuntu 22.04 and using Python 3.8. Windows is supported as well.
 
 For Inquiries
 -------------

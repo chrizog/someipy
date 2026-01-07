@@ -17,6 +17,7 @@ import asyncio
 from collections.abc import Callable
 import logging
 from typing import Tuple
+from someipy._internal._common.endpoint import Endpoint
 from someipy._internal.someip_endpoint import (
     SomeipEndpoint,
     TCPClientSomeipEndpoint,
@@ -33,8 +34,7 @@ class SomeipEndpointFactory:
 
     @staticmethod
     async def create_server_endpoint(
-        ip_address: str,
-        port: int,
+        endpoint: Endpoint,
         protocol: TransportLayerProtocol,
         someip_callback: Callable[
             [SomeIpMessage, Tuple[str, int], Tuple[str, int], TransportLayerProtocol],
@@ -44,25 +44,26 @@ class SomeipEndpointFactory:
 
         if protocol == TransportLayerProtocol.UDP:
             loop = asyncio.get_running_loop()
-            rcv_socket = create_udp_socket(ip_address, port)
+            rcv_socket = create_udp_socket(str(endpoint.ip), endpoint.port)
 
             _, udp_endpoint = await loop.create_datagram_endpoint(
-                lambda: UDPSomeipEndpoint(ip_address, port), sock=rcv_socket
+                lambda: UDPSomeipEndpoint(str(endpoint.ip), endpoint.port),
+                sock=rcv_socket,
             )
 
             udp_endpoint.set_someip_callback(someip_callback)
 
             return udp_endpoint
         else:
-            tcp_client_manager = TcpClientManager(ip_address, port)
+            tcp_client_manager = TcpClientManager(str(endpoint.ip), endpoint.port)
             loop = asyncio.get_running_loop()
             server = await loop.create_server(
                 lambda: TcpClientProtocol(client_manager=tcp_client_manager),
-                ip_address,
-                port,
+                str(endpoint.ip),
+                endpoint.port,
             )
             tcp_someip_endpoint = TCPSomeipEndpoint(
-                server, tcp_client_manager, ip_address, port
+                server, tcp_client_manager, str(endpoint.ip), endpoint.port
             )
 
             tcp_someip_endpoint.set_someip_callback(someip_callback)
@@ -70,41 +71,32 @@ class SomeipEndpointFactory:
             return tcp_someip_endpoint
 
     @staticmethod
-    async def create_client_endpoint(
-        dst_ip: str,
-        dst_port: int,
-        src_ip: str,
-        src_port: int,
-        protocol: TransportLayerProtocol,
+    async def create_udp_client_endpoint(
+        dst_endpoint: Endpoint,
+        src_endpoint: Endpoint,
         someip_message_callback: Callable[[SomeIpMessage], None],
         logger: logging.Logger = None,
     ) -> SomeipEndpoint:
-        if protocol == TransportLayerProtocol.UDP:
-            udp_endpoint = await SomeipEndpointFactory.create_server_endpoint(
-                src_ip,
-                src_port,
-                TransportLayerProtocol.UDP,
-                someip_message_callback,
-            )
-            return udp_endpoint
-        else:
-            tcp_endpoint = TCPClientSomeipEndpoint(
-                dst_ip, dst_port, src_ip, src_port, logger
-            )
-            tcp_endpoint.set_someip_callback(someip_message_callback)
-            return tcp_endpoint
+        udp_endpoint = await SomeipEndpointFactory.create_server_endpoint(
+            src_endpoint,
+            TransportLayerProtocol.UDP,
+            someip_message_callback,
+        )
+        return udp_endpoint
 
     @staticmethod
     def create_tcp_client_endpoint(
-        dst_ip: str,
-        dst_port: int,
-        src_ip: str,
-        src_port: int,
+        dst_endpoint: Endpoint,
+        src_endpoint: Endpoint,
         someip_message_callback: Callable[[SomeIpMessage], None],
         logger: logging.Logger = None,
     ) -> TCPClientSomeipEndpoint:
         tcp_endpoint = TCPClientSomeipEndpoint(
-            dst_ip, dst_port, src_ip, src_port, logger
+            str(dst_endpoint.ip),
+            dst_endpoint.port,
+            str(src_endpoint.ip),
+            src_endpoint.port,
+            logger,
         )
         tcp_endpoint.set_someip_callback(someip_message_callback)
         return tcp_endpoint

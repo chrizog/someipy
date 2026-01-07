@@ -1,4 +1,4 @@
-# Copyright (C) 2024 Christian H.
+# Copyright (C) 2025 Christian H.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -34,7 +34,6 @@ class SubscribeAckEventGroupEntry(SdEntry):
         service_id: int,
         instance_id: int,
         major_version: int,
-        minor_version: int,
         ttl: int,
         eventgroup_id: int,
         counter: int,
@@ -43,7 +42,6 @@ class SubscribeAckEventGroupEntry(SdEntry):
         self.service_id = service_id
         self.instance_id = instance_id
         self.major_version = major_version
-        self.minor_version = minor_version
         self.ttl = ttl
         self.eventgroup_id = eventgroup_id
         self.counter = counter

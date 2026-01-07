@@ -58,6 +58,11 @@ async def main():
 
     someipy_daemon = await connect_to_someipy_daemon()
 
+    # For Windows use:
+    # someipy_daemon = await connect_to_someipy_daemon(
+    #     {"use_tcp": True, "tcp_host": interface_ip, "tcp_port": 30500}
+    # )
+
     temperature_event = Event(id=SAMPLE_EVENT_ID, protocol=TransportLayerProtocol.UDP)
     temperature_eventgroup = EventGroup(
         id=SAMPLE_EVENTGROUP_ID, events=[temperature_event]
@@ -94,9 +99,10 @@ async def main():
     except asyncio.CancelledError as e:
         print("Shutdown..")
     finally:
+        print("Unsubscribe eventgroup..")
+        service_instance_temperature.unsubscribe_eventgroup(temperature_eventgroup)
 
         print("Shutdown service instance..")
-
         await someipy_daemon.disconnect_from_daemon()
 
     print("End main task..")

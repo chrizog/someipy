@@ -70,6 +70,11 @@ async def main():
 
     someipy_daemon = await connect_to_someipy_daemon()
 
+    # For Windows use:
+    # someipy_daemon = await connect_to_someipy_daemon(
+    #     {"use_tcp": True, "tcp_host": interface_ip, "tcp_port": 30500}
+    # )
+
     addition_method = Method(
         id=SAMPLE_METHOD_ID,
         protocol=TransportLayerProtocol.UDP,

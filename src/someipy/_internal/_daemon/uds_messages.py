@@ -155,9 +155,11 @@ class StopSubscribeEventGroupRequest(BaseMessage):
     service_id: int
     instance_id: int
     major_version: int
-    eventgroup_id: int
+    eventgroup: str
     client_endpoint_ip: str
     client_endpoint_port: int
+    udp: bool
+    tcp: bool
 
 
 class ReceivedEvent(BaseMessage):

@@ -8,6 +8,12 @@ HEAD
 
 Code changes to ``master`` that are *not* in the latest release:
 
+Release v2.1.0
+-----------------
+- Support Windows: Use tcp socket for daemon communication on Windows systems.
+- Add support for broadcasting SOME/IP SD messages over UDP.
+- Implement stop subscribe functionality in the `someipyd` daemon.
+
 Release v2.0.0
 -----------------
 - Introduced a new architecture with a `someipyd` daemon for centralized network handling.

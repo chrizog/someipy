@@ -113,6 +113,14 @@ The next step is to connect to the someipy daemon. The daemon is a separate proc
 
 In case, a non-default Unix Domain Socket path is used, a config dictionary can be passed to the *connect_to_someipy_daemon* function.
 
+If Windows is used, TCP sockets have to be used for communication between the application and the someipy daemon. In this case, the *connect_to_someipy_daemon* function has to be called with a config dictionary containing the keys *use_tcp*, *tcp_host* and optionally *tcp_port*.
+
+.. code-block:: python
+
+    someipy_daemon = await connect_to_someipy_daemon(
+        {"use_tcp": True, "tcp_host": interface_ip, "tcp_port": 30500}
+    )
+
 
 Defining the SOME/IP Service
 ----------------------------

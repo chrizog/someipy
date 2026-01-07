@@ -1,4 +1,4 @@
-# Copyright (C) 2024 Christian H.
+# Copyright (C) 2025 Christian H.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,7 +29,6 @@ class StopSubscribeEventGroupEntry(SdEntry):
     service_id: int
     instance_id: int
     major_version: int
-    minor_version: int
     eventgroup_id: int
     counter: int
     ip_v4_endpoints: List[IpV4EndpointOption]
@@ -40,7 +39,6 @@ class StopSubscribeEventGroupEntry(SdEntry):
         service_id: int,
         instance_id: int,
         major_version: int,
-        minor_version: int,
         eventgroup_id: int,
         counter: int,
         ip_v4_endpoints: List[IpV4EndpointOption],
@@ -50,7 +48,6 @@ class StopSubscribeEventGroupEntry(SdEntry):
         self.service_id = service_id
         self.instance_id = instance_id
         self.major_version = major_version
-        self.minor_version = minor_version
         self.eventgroup_id = eventgroup_id
         self.counter = counter
         self.ip_v4_endpoints = ip_v4_endpoints

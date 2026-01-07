@@ -45,6 +45,11 @@ async def main():
 
     someipy_daemon = await connect_to_someipy_daemon()
 
+    # For Windows use:
+    # someipy_daemon = await connect_to_someipy_daemon(
+    #     {"use_tcp": True, "tcp_host": interface_ip, "tcp_port": 30500}
+    # )
+
     temperature_event = Event(id=SAMPLE_EVENT_ID, protocol=TransportLayerProtocol.UDP)
 
     temperature_eventgroup = EventGroup(

@@ -1,7 +1,6 @@
 # someipy - A Python Library implementing the SOME/IP Protocol
 
-![Dynamic JSON Badge](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fgist.githubusercontent.com%2Fchrizog%2F6a2e6f355eedf38ae3af74dcdb7b30a1%2Fraw%2F61630b4d2cc9c04aae78b3cca0cbc9c56e76f0e5%2Fcoverage_someipy_v1.json&query=totals.percent_covered_display&suffix=%20%25&label=Coverage)
-
+![Dynamic JSON Badge](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fgist.githubusercontent.com%2Fchrizog%2F6a2e6f355eedf38ae3af74dcdb7b30a1%2Fraw%2F61630b4d2cc9c04aae78b3cca0cbc9c56e76f0e5%2Fcoverage_someipy_v1.json&query=totals.percent_covered_display&suffix=%20%25&label=Line%20%Coverage)
 
 
 ## Get in Contact :postbox:
@@ -27,7 +26,7 @@ someipy is based on the specification version of R22-11:
 - [SOME/IP Protocol Specification](https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPProtocol.pdf)
 - [SOME/IP Service Discovery Protocol Specification](https://www.autosar.org/fileadmin/standards/R22-11/FO/AUTOSAR_PRS_SOMEIPServiceDiscoveryProtocol.pdf)
 
-The library is currently developed and tested under Ubuntu 22.04 and Python 3.8.
+The library is currently developed and tested under Ubuntu 22.04 and Python 3.8. Windows is supported as well.
 
 ## Typical Use Cases
 

@@ -312,15 +312,17 @@ class ClientServiceInstance(ClientInstanceInterface):
 
         self._daemon.transmit_message_to_daemon(method_request)
 
-    def unsubscribe_eventgroup(self, eventgroup_id: int):
+    def unsubscribe_eventgroup(self, eventgroup: EventGroup):
         method_request = create_uds_message(
             StopSubscribeEventGroupRequest,
             service_id=self._service.id,
             instance_id=self.instance_id,
             major_version=self._service.major_version,
-            eventgroup_id=eventgroup_id,
+            eventgroup=eventgroup.to_json(),
             client_endpoint_ip=self._endpoint_ip,
             client_endpoint_port=self._endpoint_port,
+            udp=eventgroup.has_udp,
+            tcp=eventgroup.has_tcp,
         )
 
         self._daemon.transmit_message_to_daemon(method_request)

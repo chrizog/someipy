@@ -1,4 +1,4 @@
-# Copyright (C) 2024 Christian H.
+# Copyright (C) 2025 Christian H.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -77,12 +77,14 @@ class SomeIpDaemonClient:
 
         if self._config is None:
             self._use_tcp = platform.system() != "Linux"
+            self._tcp_host = "127.0.0.1"
             self._tcp_port = 30500
             self._socket_path = "/tmp/someipyd.sock"
         else:
             self._socket_path = self._config.get("socket_path", "/tmp/someipyd.sock")
             self._use_tcp = self._config.get("use_tcp", platform.system() != "Linux")
             self._tcp_port = self._config.get("tcp_port", 30500)
+            self._tcp_host = self._config.get("tcp_host", "127.0.0.1")
 
         self._rx_message_queue: asyncio.Queue[DaemonMessage] = asyncio.Queue()
         self._rx_task: asyncio.Task = None
@@ -155,7 +157,7 @@ class SomeIpDaemonClient:
 
                 if self._use_tcp:
                     self.reader, self.writer = await asyncio.open_connection(
-                        "127.0.0.1", self._tcp_port
+                        self._tcp_host, self._tcp_port
                     )
                 else:
                     self.reader, self.writer = await asyncio.open_unix_connection(
