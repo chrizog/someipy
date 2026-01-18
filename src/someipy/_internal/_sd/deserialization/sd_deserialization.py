@@ -296,29 +296,35 @@ def deserialize_sd_message(
                 data[current_pos_option + 4 : current_pos_option + 24]
             )
             options.append(sd_option)
+
         elif option_type == SdOptionOnWireType.IPV4_MULTICAST:
             sd_option = deserialize_ipv4_multicast_option(
                 data[current_pos_option + 4 : current_pos_option + 12]
             )
             options.append(sd_option)
+
         elif option_type == SdOptionOnWireType.IPV6_MULTICAST:
             sd_option = deserialize_ipv6_multicast_option(
                 data[current_pos_option + 4 : current_pos_option + 24]
             )
             options.append(sd_option)
+
         elif option_type == SdOptionOnWireType.IPV4_SD_ENDPOINT:
             sd_option = deserialize_ipv4_sd_endpoint_option(
                 data[current_pos_option + 4 : current_pos_option + 12]
             )
             options.append(sd_option)
+
         elif option_type == SdOptionOnWireType.IPV6_SD_ENDPOINT:
             sd_option = deserialize_ipv6_sd_endpoint_option(
                 data[current_pos_option + 4 : current_pos_option + 24]
             )
             options.append(sd_option)
+
         elif option_type == SdOptionOnWireType.CONFIGURATION:
             dummy_config_option = ConfigurationOption()
             options.append(dummy_config_option)
+
         elif option_type == SdOptionOnWireType.LOAD_BALANCING:
             sd_option = deserialize_load_balancing_option(
                 data[current_pos_option + 4 : current_pos_option + 8]
@@ -445,7 +451,6 @@ def deserialize_sd_message(
                 service_id=common_entry_data.service_id,
                 instance_id=common_entry_data.instance_id,
                 major_version=common_entry_data.major_version,
-                minor_version=minor_version,
                 ttl=common_entry_data.ttl,
                 eventgroup_id=eventgroup_id,
                 counter=counter,
@@ -485,8 +490,8 @@ def deserialize_sd_message(
                 service_id=common_entry_data.service_id,
                 instance_id=common_entry_data.instance_id,
                 major_version=common_entry_data.major_version,
-                minor_version=minor_version,
-                ttl=common_entry_data.ttl,
+                eventgroup_id=eventgroup_id,
+                counter=counter,
                 ip_v4_endpoints=[
                     o for o in applicable_options if isinstance(o, IpV4EndpointOption)
                 ],

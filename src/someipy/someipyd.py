@@ -19,6 +19,7 @@ import asyncio
 import base64
 from dataclasses import dataclass
 import functools
+from itertools import chain
 import json
 import logging
 import os
@@ -34,6 +35,12 @@ from someipy._internal._daemon.daemon_server_client import (
     ClientMessageEventArgs,
     DaemonServerClient,
 )
+from someipy._internal._daemon.sd_message_queries import (
+    get_offered_service_instances,
+    get_subscribe_acks,
+    get_subscribe_nacks,
+    get_subscriptions,
+)
 from someipy._internal._daemon.subscription import Subscription
 from someipy._internal._daemon.subscription_storage import SubscriptionStorage
 from someipy._internal._sd.deserialization.sd_deserialization import (
@@ -41,6 +48,7 @@ from someipy._internal._sd.deserialization.sd_deserialization import (
     is_sd_message,
 )
 from someipy._internal._sd.deserialization.sd_serialization import serialize_sd_message
+from someipy._internal._sd.entries.find_service_entry import FindServiceEntry
 from someipy._internal._sd.entries.offer_service_entry import OfferServiceEntry
 from someipy._internal._sd.entries.stop_subscribe_eventgroup_entry import (
     StopSubscribeEventGroupEntry,
@@ -50,12 +58,14 @@ from someipy._internal._sd.entries.subscribe_eventgroup_entry import (
 )
 from someipy._internal._sd.options.endpoint import IpV4EndpointOption
 from someipy._internal._sd.sd_message import SdMessage
-from someipy._internal._sd.sd_message_creator import (
+from someipy._internal._daemon.sd_message_creator import (
     create_offer_service_message,
     create_stop_offer_service_message,
+    create_subscribe_eventgroup_ack_message,
 )
 from someipy._internal._sd.service_instance import ServiceInstance
 from someipy._internal.message_types import MessageType
+from someipy._internal.session_manager import SessionManager
 from someipy._internal.someip_endpoint import (
     TCPClientSomeipEndpoint,
     TCPSomeipEndpoint,
@@ -64,26 +74,11 @@ from someipy._internal.someip_endpoint_factory import SomeipEndpointFactory
 from someipy._internal.someip_endpoint_storage import SomeipEndpointStorage
 from someipy._internal.someip_message import SomeIpMessage
 from someipy._internal.transport_layer_protocol import TransportLayerProtocol
-from someipy._internal.session_handler import SessionHandler
 from someipy._internal.simple_timer import SimplePeriodicTimer
 from someipy._internal.someip_header import SomeIpHeader
-from someipy._internal.someip_sd_builder import (
-    build_subscribe_eventgroup_ack_entry,
-    build_subscribe_eventgroup_ack_sd_header,
-)
-from someipy._internal.someip_sd_extractors import (
-    extract_subscribe_ack_eventgroup_entries,
-    extract_subscribe_entries,
-    extract_subscribe_nack_eventgroup_entries,
-)
+
 from someipy._internal.someip_sd_header import (
-    SdEntryType,
-    SdEventGroupEntry,
     SdService,
-    SdService2,
-    SdServiceWithTimestamp,
-    SdSubscription,
-    SomeIpSdHeader,
 )
 from someipy._internal.subscribers import EventGroupSubscriber, Subscribers
 from someipy._internal._daemon.uds_messages import (
@@ -162,9 +157,9 @@ class SomeipDaemon:
         self.logger = logger
         self._endpoint_factory = endpoint_factory
 
-        self.sd_address = self.config.get("sd_address", DEFAULT_SD_ADDRESS)
-        self.sd_port = self.config.get("sd_port", DEFAULT_SD_PORT)
-        self.interface = self.config.get("interface", DEFAULT_INTERFACE_IP)
+        self.sd_address: str = self.config.get("sd_address", DEFAULT_SD_ADDRESS)
+        self.sd_port: int = self.config.get("sd_port", DEFAULT_SD_PORT)
+        self.interface: str = self.config.get("interface", DEFAULT_INTERFACE_IP)
 
         self._server = server
 
@@ -189,8 +184,7 @@ class SomeipDaemon:
         self._pending_subscriptions: Set[Subscription] = set()
         self._active_subscriptions: Set[Subscription] = set()
 
-        self._mcast_session_handler = SessionHandler()
-        self._unicast_session_handler = SessionHandler()
+        self._session_manager = SessionManager()
 
         # Qeueues and tasks stored by id of asyncio.StreamWriter
         self._tx_queues: Dict[int, asyncio.Queue] = {}
@@ -689,7 +683,10 @@ class SomeipDaemon:
                     (
                         session_id,
                         reboot_flag,
-                    ) = self._unicast_session_handler.update_session()
+                    ) = self._session_manager.update_session(
+                        sender=self.interface,
+                        receiver=str(active_subscription.server_endpoint.ip),
+                    )
 
                     # Build subscribe message
                     sd_message = SdMessage()
@@ -841,7 +838,9 @@ class SomeipDaemon:
         (
             session_id,
             reboot_flag,
-        ) = self._mcast_session_handler.update_session()
+        ) = self._session_manager.update_session(
+            sender=self.interface, receiver=self.sd_address
+        )
 
         sd_message = create_stop_offer_service_message(
             services_to_stop=[service_to_stop],
@@ -1057,6 +1056,7 @@ class SomeipDaemon:
         service_found = False
         all_services = [s for s in self._found_services]
 
+        # Services of this ECU by other applications
         for service in self._services_to_offer.get_all_services():
             protocols_to_add = set()
             if service.has_udp:
@@ -1124,6 +1124,34 @@ class SomeipDaemon:
                 break
 
         if not service_found:
+
+            # Send out find message once
+            sd_message = SdMessage()
+
+            (
+                session_id,
+                reboot_flag,
+            ) = self._session_manager.update_session(
+                sender=self.interface, receiver=self.sd_address
+            )
+
+            sd_message.session_id = session_id
+            sd_message.reboot_flag = reboot_flag
+
+            find_service_entry = FindServiceEntry(
+                service_id=message["service_id"],
+                instance_id=message["instance_id"],
+                major_version=message["major_version"],
+                minor_version=message["minor_version"],
+            )
+
+            sd_message.entries.append(find_service_entry)
+
+            if self._ucast_transport:
+                self._ucast_transport.sendto(
+                    serialize_sd_message(sd_message), (self.sd_address, self.sd_port)
+                )
+
             response = create_uds_message(
                 FindServiceResponse,
                 success=False,
@@ -1267,7 +1295,9 @@ class SomeipDaemon:
             (
                 session_id,
                 reboot_flag,
-            ) = self._mcast_session_handler.update_session()
+            ) = self._session_manager.update_session(
+                sender=self.interface, receiver=self.sd_address
+            )
 
             sd_message = create_offer_service_message(
                 services_to_offer=services_to_offer,
@@ -1399,7 +1429,9 @@ class SomeipDaemon:
             (
                 session_id,
                 reboot_flag,
-            ) = self._unicast_session_handler.update_session()
+            ) = self._session_manager.update_session(
+                sender=self.interface, receiver=str(offered_service.endpoint.ip)
+            )
 
             # Build subscribe message
             sd_message = SdMessage()
@@ -1452,7 +1484,7 @@ class SomeipDaemon:
 
     def _handle_subscription(
         self,
-        sd_subscription: SdSubscription,
+        sd_subscription: Subscription,
     ):
         # TODO: Send back a nack message if no service is found
         self.logger.info(f"Received subscription: {sd_subscription}")
@@ -1475,41 +1507,45 @@ class SomeipDaemon:
             if (
                 offered_service.service_id == sd_subscription.service_id
                 and offered_service.instance_id == sd_subscription.instance_id
-                and sd_subscription.eventgroup_id in offered_service.eventgroup_ids
+                and sd_subscription.eventgroup.id in offered_service.eventgroup_ids
                 and offered_service.major_version == sd_subscription.major_version
             ):
 
                 self.logger.info(
-                    f"Subscription to eventgroup 0x{sd_subscription.eventgroup_id:04X} of service 0x{offered_service.service_id:04X}, instance 0x{offered_service.instance_id:04X} requested."
+                    f"Subscription to eventgroup 0x{sd_subscription.eventgroup.id:04X} of service 0x{offered_service.service_id:04X}, instance 0x{offered_service.instance_id:04X} requested."
                 )
 
                 (
                     session_id,
                     reboot_flag,
-                ) = self._unicast_session_handler.update_session()
+                ) = self._session_manager.update_session(
+                    sender=self.interface,
+                    receiver=str(sd_subscription.client_endpoint.ip),
+                )
 
-                ack_entry = build_subscribe_eventgroup_ack_entry(
+                sd_message_ack = create_subscribe_eventgroup_ack_message(
                     service_id=offered_service.service_id,
                     instance_id=offered_service.instance_id,
                     major_version=offered_service.major_version,
-                    ttl=sd_subscription.ttl,
-                    event_group_id=sd_subscription.eventgroup_id,
-                )
-
-                header_output = build_subscribe_eventgroup_ack_sd_header(
-                    entry=ack_entry,
+                    ttl=sd_subscription.ttl_seconds,
+                    event_group_id=sd_subscription.eventgroup.id,
+                    counter=0,
                     session_id=session_id,
                     reboot_flag=reboot_flag,
                 )
 
                 self.logger.info(
-                    f"Sending subscribe ack for eventgroup 0x{sd_subscription.eventgroup_id:04X} of service 0x{offered_service.service_id:04X} instance 0x{offered_service.instance_id:04X} to {sd_subscription.ipv4_address}:{sd_subscription.port}"
+                    f"Sending subscribe ack for eventgroup 0x{sd_subscription.eventgroup.id:04X} of service 0x{offered_service.service_id:04X} "
+                    f"instance 0x{offered_service.instance_id:04X} to {sd_subscription.client_endpoint}"
                 )
 
                 new_subscriber = EventGroupSubscriber(
-                    sd_subscription.eventgroup_id,
-                    (sd_subscription.ipv4_address, sd_subscription.port),
-                    sd_subscription.ttl,
+                    sd_subscription.eventgroup.id,
+                    (
+                        str(sd_subscription.client_endpoint.ip),
+                        sd_subscription.client_endpoint.port,
+                    ),
+                    sd_subscription.ttl_seconds,
                 )
 
                 if offered_service not in self._service_subscribers:
@@ -1521,68 +1557,40 @@ class SomeipDaemon:
 
                 if self._ucast_transport:
                     self._ucast_transport.sendto(
-                        data=header_output.to_buffer(),
+                        data=serialize_sd_message(sd_message_ack),
                         addr=(
-                            str(sd_subscription.ipv4_address),
+                            str(sd_subscription.client_endpoint.ip),
                             self.sd_port,
                         ),
                     )
 
-    def _handle_sd_subscribe_ack_eventgroup_entry(
-        self, event_group_entry: SdEventGroupEntry
-    ):
-        self.logger.info(
-            f"Received subscribe ack eventgroup entry: {event_group_entry}"
-        )
+    def _handle_sd_subscribe_ack_eventgroup_entry(self, sd_subscription: Subscription):
+        self.logger.info(f"Received subscribe ack eventgroup entry: {sd_subscription}")
         pending_subscription = None
 
         for pending_subscription_tmp in self._pending_subscriptions:
-            self.logger.debug(
-                f"Checking pending subscription: {pending_subscription_tmp} with values \
-                service_id={pending_subscription_tmp.service_id}, \
-                instance_id={pending_subscription_tmp.instance_id}, \
-                major_version={pending_subscription_tmp.major_version}, \
-                eventgroup_id={pending_subscription_tmp.eventgroup.id}"
-            )
-
-            self.logger.debug(
-                f"Event group entry values: \
-                service_id={event_group_entry.sd_entry.service_id}, \
-                instance_id={event_group_entry.sd_entry.instance_id}, \
-                major_version={event_group_entry.sd_entry.major_version}, \
-                eventgroup_id={event_group_entry.eventgroup_id}"
-            )
-
             if (
-                pending_subscription_tmp.service_id
-                == event_group_entry.sd_entry.service_id
-                and pending_subscription_tmp.instance_id
-                == event_group_entry.sd_entry.instance_id
+                pending_subscription_tmp.service_id == sd_subscription.service_id
+                and pending_subscription_tmp.instance_id == sd_subscription.instance_id
                 and pending_subscription_tmp.major_version
-                == event_group_entry.sd_entry.major_version
+                == sd_subscription.major_version
                 and pending_subscription_tmp.eventgroup.id
-                == event_group_entry.eventgroup_id
+                == sd_subscription.eventgroup.id
             ):
-                self.logger.debug(
-                    f"Found matching pending subscription: {pending_subscription_tmp}"
-                )
                 pending_subscription = pending_subscription_tmp
                 break
 
         if pending_subscription is not None:
             pending_subscription.timestamp_last_update = time.time()
+
             self._active_subscriptions.discard(pending_subscription)
             self._active_subscriptions.add(pending_subscription)
 
             self.logger.info(f"Subscription acknowledged: {pending_subscription}")
             self._pending_subscriptions.discard(pending_subscription)
 
-    def _handle_sd_subscribe_nack_eventgroup_entry(
-        self, event_group_entry: SdEventGroupEntry
-    ):
-        self.logger.info(
-            f"Received subscribe nack eventgroup entry: {event_group_entry}"
-        )
+    def _handle_sd_subscribe_nack_eventgroup_entry(self, sd_subscription: Subscription):
+        self.logger.info(f"Received subscribe nack eventgroup entry: {sd_subscription}")
 
     def datagram_received_mcast(
         self, data: bytes, addr: Tuple[Union[str, Any], int]
@@ -1598,46 +1606,14 @@ class SomeipDaemon:
         sd_message = deserialize_sd_message(data, addr[0], addr[1], multicast=True)
         sd_message.timestamp = time.time()
 
-        for offer_service_entry in [
-            o
-            for o in sd_message.entries
-            if o.type
-            == someipy._internal._sd.entries.sd_entry.SdEntryType.OFFER_SERVICE
-        ]:
-            entry: OfferServiceEntry = offer_service_entry
+        for offered_service_instance in get_offered_service_instances(sd_message):
+            self._handle_offered_service(offered_service_instance)
 
-            protocols = set()
-            for ep in entry.ip_v4_endpoints:
-                protocols.add(ep.protocol)
-            for ep in entry.ip_v6_endpoints:
-                protocols.add(ep.protocol)
-
-            endpoint = Endpoint(
-                ip=entry.ip_v4_endpoints[0].address,
-                port=entry.ip_v4_endpoints[0].port,
-            )
-
-            service_instance = ServiceInstance(
-                service_id=entry.service_id,
-                instance_id=entry.instance_id,
-                major_version=entry.major_version,
-                minor_version=entry.minor_version,
-                ttl=entry.ttl,
-                endpoint=endpoint,
-                protocols=frozenset(protocols),
-                timestamp=sd_message.timestamp,
-            )
-            self._handle_offered_service(service_instance)
-
-        someip_sd_header = SomeIpSdHeader.from_buffer(data)
-
-        for subscription in extract_subscribe_entries(someip_sd_header):
+        for subscription in get_subscriptions(sd_message):
             self._handle_subscription(subscription)
 
-        for event_group_entry in extract_subscribe_ack_eventgroup_entries(
-            someip_sd_header
-        ):
-            self._handle_sd_subscribe_ack_eventgroup_entry(event_group_entry)
+        for subscription_ack in get_subscribe_acks(sd_message):
+            self._handle_sd_subscribe_ack_eventgroup_entry(subscription_ack)
 
     def connection_lost_mcast(self, exc: Exception) -> None:
         pass
@@ -1651,24 +1627,20 @@ class SomeipDaemon:
         if addr[0] == self.interface and addr[1] == self.sd_port:
             return
 
-        someip_header = SomeIpHeader.from_buffer(data)
-        if not someip_header.is_sd_header():
+        if not is_sd_message(data):
             return
 
-        someip_sd_header = SomeIpSdHeader.from_buffer(data)
+        sd_message = deserialize_sd_message(data, addr[0], addr[1], multicast=True)
+        sd_message.timestamp = time.time()
 
-        for subscription in extract_subscribe_entries(someip_sd_header):
+        for subscription in get_subscriptions(sd_message):
             self._handle_subscription(subscription)
 
-        for event_group_entry in extract_subscribe_ack_eventgroup_entries(
-            someip_sd_header
-        ):
-            self._handle_sd_subscribe_ack_eventgroup_entry(event_group_entry)
+        for subscription_ack in get_subscribe_acks(sd_message):
+            self._handle_sd_subscribe_ack_eventgroup_entry(subscription_ack)
 
-        for event_group_entry in extract_subscribe_nack_eventgroup_entries(
-            someip_sd_header
-        ):
-            self._handle_sd_subscribe_nack_eventgroup_entry(event_group_entry)
+        for subscription_nack in get_subscribe_nacks(sd_message):
+            self._handle_sd_subscribe_nack_eventgroup_entry(subscription_nack)
 
     def connection_lost_ucast(self, exc: Exception) -> None:
         pass

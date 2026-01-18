@@ -19,7 +19,7 @@ import ipaddress
 import json
 import platform
 import struct
-from typing import Dict, List, TypedDict, cast
+from typing import List, TypedDict, cast
 
 from someipy._internal.daemon_client_abcs import (
     ClientInstanceInterface,
@@ -146,7 +146,8 @@ class SomeIpDaemonClient:
                 break
 
     async def _connect_to_daemon(self):
-        num_retries = 3
+        max_retries = 3
+        num_retries = max_retries
         success = False
 
         while num_retries > 0:
@@ -174,7 +175,7 @@ class SomeIpDaemonClient:
                 await asyncio.sleep(1.0)
 
         if not success:
-            raise Exception(f"Failed to connect to daemon after retries")
+            raise Exception(f"Failed to connect to daemon after {max_retries} retries")
         else:
             self._rx_task = asyncio.create_task(self.receive_data_task(self.reader))
             self._tx_task = asyncio.create_task(self.transmit_data_task(self.writer))
@@ -267,6 +268,48 @@ class SomeIpDaemonClient:
 
         self.transmit_message_to_daemon(call_method_response)
 
+    def _handle_inbound_call_method_request(self, message: InboundCallMethodRequest):
+        # Find the right method and call the method handler
+        service_id = message["service_id"]
+        instance_id = message["instance_id"]
+        major_version = message["major_version"]
+        minor_version = message["minor_version"]
+        method_id = message["method_id"]
+        protocol = message["protocol"]
+
+        for service_instance in self._server_service_instances:
+            if (
+                service_instance.service.id == service_id
+                and service_instance.instance_id == instance_id
+                and service_instance.service.major_version == major_version
+            ):
+                method = service_instance.service.methods.get(method_id, None)
+                if method:
+                    get_logger(_logger_name).debug(
+                        f"Calling method handler for {method_id:04x} on service {service_id:04x}"
+                    )
+                    # Call the method handler, eventually call it in a separate task
+                    # to avoid blocking the event loop
+
+                    asyncio.create_task(self.handle_single_method_call(message, method))
+
+    def _handle_outbound_call_method_response(
+        self, message: OutboundCallMethodResponse
+    ):
+        for service_instance in self._client_service_instances:
+            if (
+                service_instance.service.id == message["service_id"]
+                and message["method_id"]
+                in [m for m in service_instance.service.methods.keys()]
+                and service_instance.endpoint[1] == message["dst_endpoint_port"]
+                and service_instance.endpoint[0] == message["dst_endpoint_ip"]
+            ):
+                service_instance._method_call_data_received(message)
+
+    def handle_received_event(self, message: ReceivedEvent):
+        for service_instance in self._client_service_instances:
+            service_instance._event_data_received(message)
+
     async def _handle_message(self, message: BaseMessage):
 
         if message["type"] == InboundCallMethodRequest.__name__:
@@ -274,32 +317,7 @@ class SomeIpDaemonClient:
             get_logger(_logger_name).debug(f"Received CallMethodRequest: {message}")
 
             message = cast(InboundCallMethodRequest, message)
-
-            # Find the right method and call the method handler
-            service_id = message["service_id"]
-            instance_id = message["instance_id"]
-            major_version = message["major_version"]
-            minor_version = message["minor_version"]
-            method_id = message["method_id"]
-            protocol = message["protocol"]
-
-            for service_instance in self._server_service_instances:
-                if (
-                    service_instance.service.id == service_id
-                    and service_instance.instance_id == instance_id
-                    and service_instance.service.major_version == major_version
-                ):
-                    method = service_instance.service.methods.get(method_id, None)
-                    if method:
-                        get_logger(_logger_name).debug(
-                            f"Calling method handler for {method_id:04x} on service {service_id:04x}"
-                        )
-                        # Call the method handler, eventually call it in a separate task
-                        # to avoid blocking the event loop
-
-                        asyncio.create_task(
-                            self.handle_single_method_call(message, method)
-                        )
+            self._handle_inbound_call_method_request(message)
 
         elif message["type"] == OutboundCallMethodResponse.__name__:
             get_logger(_logger_name).debug(
@@ -307,21 +325,12 @@ class SomeIpDaemonClient:
             )
 
             message = cast(OutboundCallMethodResponse, message)
-
-            for service_instance in self._client_service_instances:
-                if (
-                    service_instance.service.id == message["service_id"]
-                    and message["method_id"]
-                    in [m for m in service_instance.service.methods.keys()]
-                    and service_instance.endpoint[1] == message["dst_endpoint_port"]
-                    and service_instance.endpoint[0] == message["dst_endpoint_ip"]
-                ):
-                    service_instance._method_call_data_received(message)
+            self._handle_outbound_call_method_response(message)
 
         elif message["type"] == ReceivedEvent.__name__:
             get_logger(_logger_name).debug(f"Received ReceivedEvent: {message}")
-            for service_instance in self._client_service_instances:
-                service_instance._event_data_received(cast(ReceivedEvent, message))
+            message = cast(ReceivedEvent, message)
+            self.handle_received_event(message)
 
         else:
             self._rx_message_queue.put_nowait(message)

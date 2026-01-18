@@ -18,6 +18,9 @@ from typing import Iterable
 from someipy._internal._daemon.offer_service_storage import ServiceToOffer
 from someipy._internal._sd.entries.offer_service_entry import OfferServiceEntry
 from someipy._internal._sd.entries.stop_offer_service_entry import StopOfferServiceEntry
+from someipy._internal._sd.entries.subscribe_ack_entry import (
+    SubscribeAckEventGroupEntry,
+)
 from someipy._internal._sd.options.endpoint import IpV4EndpointOption
 from someipy._internal._sd.sd_message import SdMessage
 from someipy._internal.transport_layer_protocol import TransportLayerProtocol
@@ -153,4 +156,32 @@ def create_stop_offer_service_message(
             ip_v6_endpoints=[],
         )
         sd_message.entries.append(new_entry)
+    return sd_message
+
+
+def create_subscribe_eventgroup_ack_message(
+    service_id: int,
+    instance_id: int,
+    major_version: int,
+    ttl: int,
+    eventgroup_id: int,
+    counter: int,
+    session_id: int,
+    reboot_flag: bool,
+) -> SdMessage:
+
+    sd_message = SdMessage()
+    sd_message.session_id = session_id
+    sd_message.reboot_flag = reboot_flag
+
+    entry = SubscribeAckEventGroupEntry(
+        service_id=service_id,
+        instance_id=instance_id,
+        major_version=major_version,
+        ttl=ttl,
+        eventgroup_id=eventgroup_id,
+        counter=counter,
+    )
+
+    sd_message.entries.append(entry)
     return sd_message

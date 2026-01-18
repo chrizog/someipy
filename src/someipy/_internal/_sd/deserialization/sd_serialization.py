@@ -147,6 +147,8 @@ def serialize_sd_message(sd_message: SdMessage) -> bytes:
         ]:
             if entry.type == SdEntryType.OFFER_SERVICE:
                 ttl = entry.ttl
+            elif entry.type == SdEntryType.FIND_SERVICE:
+                ttl = 0xFFFFFF
             else:
                 ttl = 0
 
