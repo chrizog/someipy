@@ -65,6 +65,16 @@ class Method:
         self.protocol = protocol
         self.method_handler = method_handler
 
+    def __hash__(self):
+        """ Hashes object.
+
+        Returns
+        -------
+        int
+            Hash of object
+        """
+        return hash((self.id,self.protocol))
+
     def __eq__(self, __value: object) -> bool:
         """Check equality with another Method based on id and protocol.
 
