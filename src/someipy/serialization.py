@@ -104,7 +104,7 @@ class Sint8:
         Returns:
             bytes: The serialized value of the object.
         """
-        return struct.pack(">b", self.value)
+        return struct.pack("<b", self.value)
 
     def deserialize(self, payload):
         """
@@ -116,7 +116,7 @@ class Sint8:
         Returns:
             self: The deserialized object.
         """
-        (self.value,) = struct.unpack(">b", payload)
+        (self.value,) = struct.unpack("<b", payload)
         return self
 
 
@@ -184,7 +184,7 @@ class Sint16:
         Returns:
             bytes: The serialized value of the object.
         """
-        return struct.pack(">h", self.value)
+        return struct.pack("<h", self.value)
 
     def deserialize(self, payload):
         """
@@ -231,10 +231,10 @@ class Sint32:
         return 4
 
     def serialize(self) -> bytes:
-        return struct.pack(">l", self.value)
+        return struct.pack("<l", self.value)
 
     def deserialize(self, payload):
-        (self.value,) = struct.unpack(">l", payload)
+        (self.value,) = struct.unpack("<l", payload)
         return self
 
 
@@ -250,10 +250,10 @@ class Uint64:
         return 8
 
     def serialize(self) -> bytes:
-        return struct.pack(">Q", self.value)
+        return struct.pack("<Q", self.value)
 
     def deserialize(self, payload):
-        (self.value,) = struct.unpack(">Q", payload)
+        (self.value,) = struct.unpack("<Q", payload)
         return self
 
 
@@ -269,10 +269,10 @@ class Sint64:
         return 8
 
     def serialize(self) -> bytes:
-        return struct.pack(">q", self.value)
+        return struct.pack("<q", self.value)
 
     def deserialize(self, payload):
-        (self.value,) = struct.unpack(">q", payload)
+        (self.value,) = struct.unpack("<q", payload)
         return self
 
 
@@ -348,7 +348,7 @@ class Float32:
 
         This method serializes the value of the object into bytes using the big-endian byte order. It expects the value to be a float. The serialized value is returned as a bytes object.
         """
-        return struct.pack(">f", self.value)
+        return struct.pack("<f", self.value)
 
     def deserialize(self, payload):
         """
@@ -360,9 +360,9 @@ class Float32:
         Returns:
             self: The deserialized object.
 
-        This method deserializes the payload into the value of the object. It expects the payload to be a 4-byte float in big-endian byte order. The deserialized value is assigned to the `value` attribute of the object. The deserialized object is then returned.
+        This method deserializes the payload into the value of the object. It expects the payload to be a 4-byte float in little-endian byte order. The deserialized value is assigned to the `value` attribute of the object. The deserialized object is then returned.
         """
-        (self.value,) = struct.unpack(">f", payload)
+        (self.value,) = struct.unpack("<f", payload)
         return self
 
     def __eq__(self, other) -> Bool:
@@ -406,7 +406,7 @@ class Float64:
 
         This method serializes the value of the object into bytes using the big-endian byte order. It expects the value to be a float. The serialized value is returned as a bytes object.
         """
-        return struct.pack(">d", self.value)
+        return struct.pack("<d", self.value)
 
     def deserialize(self, payload):
         """
@@ -418,9 +418,9 @@ class Float64:
         Returns:
             self: The deserialized object.
 
-        This method deserializes the payload into the value of the object. It expects the payload to be an 8-byte float in big-endian byte order. The deserialized value is assigned to the `value` attribute of the object. The deserialized object is then returned.
+        This method deserializes the payload into the value of the object. It expects the payload to be an 8-byte float in little-endian byte order. The deserialized value is assigned to the `value` attribute of the object. The deserialized object is then returned.
         """
-        (self.value,) = struct.unpack(">d", payload)
+        (self.value,) = struct.unpack("<d", payload)
         return self
 
     def __eq__(self, other) -> Bool:
