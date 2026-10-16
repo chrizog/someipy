@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import struct
 import asyncio
 from abc import ABC, abstractmethod, abstractproperty
 from logging import Logger
@@ -23,6 +24,7 @@ from someipy._internal.tcp_client_manager import (
     TcpClientManagerInterface,
     TcpClientProtocolInterface,
 )
+from someipy._internal.someip_header import SomeIpHeader
 from someipy._internal.tcp_connection import TcpConnection
 from someipy._internal.transport_layer_protocol import TransportLayerProtocol
 from someipy._internal.utils import EndpointType
@@ -108,14 +110,19 @@ class UDPSomeipEndpoint(SomeipEndpoint, asyncio.DatagramProtocol):
         pass
 
     def datagram_received(self, data: bytes, addr: Tuple[Union[str, Any, int]]) -> None:
-        result = self._processor.process_data(data)
-        if result and self._callback is not None:
-            self._callback(
-                self._processor.someip_message,
-                addr,
-                (self._ip, self._port),
-                self._protocol,
-            )
+        """Parse each UDP datagram independently; a malformed datagram must not affect later ones (PRS_SOMEIP_00910)."""
+        processor = SomeipDataProcessor()
+        offset, n = 0, len(data)
+        while n - offset >= SomeIpHeader.MINIMAL_SIZE:
+            _, _, length = struct.unpack(">HHI", data[offset:offset + 8])
+            total = length + 8
+            if length < 8 or offset + total > n:
+                break
+            chunk = data[offset:offset + total]
+            offset += total
+            if processor.process_data(chunk) and self._callback is not None:
+                self._callback(processor.someip_message, addr,
+                               (self._ip, self._port), self._protocol)
 
     def sendto(self, data: bytes, addr: EndpointType) -> None:
         if self._transport is not None:
